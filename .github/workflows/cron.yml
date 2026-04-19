@@ -1,0 +1,19 @@
+name: Newsletter scheduler cron
+
+on:
+  schedule:
+    # Every 15 minutes. GitHub Actions minimum is 5 min; 15 gives a margin.
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  run-due-jobs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit cron endpoint
+        run: |
+          curl -sS -X POST \
+            -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.CRON_URL }}" \
+            || echo "Cron hit failed (will retry next tick)"

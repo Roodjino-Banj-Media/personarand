@@ -1,0 +1,234 @@
+import { getAccessToken } from './supabase.js';
+
+async function request(path, options = {}) {
+  const token = await getAccessToken().catch(() => null);
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(options.headers || {}),
+  };
+  const res = await fetch(path, {
+    ...options,
+    headers,
+    body: options.body && typeof options.body !== 'string' ? JSON.stringify(options.body) : options.body,
+  });
+  const text = await res.text();
+  const data = text ? safeJson(text) : null;
+  if (!res.ok) {
+    const err = new Error((data && data.error) || `HTTP ${res.status}`);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
+}
+
+function safeJson(s) { try { return JSON.parse(s); } catch { return s; } }
+
+export const api = {
+  calendar: {
+    list: (params = {}) => {
+      const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
+      return request(`/api/calendar${qs ? `?${qs}` : ''}`);
+    },
+    get: (id) => request(`/api/calendar/${id}`),
+    setStatus: (id, status) => request(`/api/calendar/${id}/status`, {
+      method: 'POST',
+      body: { status },
+    }),
+    planMonth: (payload) => request('/api/calendar-ai/plan-month', { method: 'POST', body: payload }),
+    brainstorm: (payload) => request('/api/calendar-ai/brainstorm', { method: 'POST', body: payload }),
+    deepen: (id) => request(`/api/calendar-ai/${id}/deepen`, { method: 'POST' }),
+    gaps: () => request('/api/calendar-ai/gaps'),
+    reseed: (force = false) => request('/api/calendar-ai/reseed', { method: 'POST', body: { force } }),
+  },
+  generate: {
+    content: (payload) => request('/api/generate/content', { method: 'POST', body: payload }),
+  },
+  prompts: {
+    build: (payload) => request('/api/prompts/build', { method: 'POST', body: payload }),
+  },
+  subscribers: {
+    list: (params = {}) => {
+      const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
+      return request(`/api/subscribers${qs ? `?${qs}` : ''}`);
+    },
+    facets: () => request('/api/subscribers/facets'),
+    overview: () => request('/api/subscribers/overview'),
+    leaders: () => request('/api/subscribers/engagement-leaders'),
+    needsReengagement: () => request('/api/subscribers/needs-reengagement'),
+    create: (payload) => request('/api/subscribers', { method: 'POST', body: payload }),
+    update: (id, payload) => request(`/api/subscribers/${id}`, { method: 'PATCH', body: payload }),
+    remove: (id) => request(`/api/subscribers/${id}`, { method: 'DELETE' }),
+    import: (rows) => request('/api/subscribers/import', { method: 'POST', body: { rows } }),
+  },
+  newsletter: {
+    list: () => request('/api/newsletter'),
+    get: (id) => request(`/api/newsletter/${id}`),
+    create: (payload) => request('/api/newsletter', { method: 'POST', body: payload }),
+    update: (id, payload) => request(`/api/newsletter/${id}`, { method: 'PATCH', body: payload }),
+    remove: (id) => request(`/api/newsletter/${id}`, { method: 'DELETE' }),
+    sendTest: (id, to) => request(`/api/newsletter/${id}/send-test`, { method: 'POST', body: { to } }),
+    send: (id, audience = 'all') => request(`/api/newsletter/${id}/send`, { method: 'POST', body: { audience } }),
+    analytics: (id) => request(`/api/newsletter/${id}/analytics`),
+    overview: () => request('/api/newsletter/analytics/overview'),
+    welcome: {
+      due: () => request('/api/newsletter/welcome/due'),
+      preview: (key) => request(`/api/newsletter/welcome/preview/${key}`),
+      run: () => request('/api/newsletter/welcome/run', { method: 'POST' }),
+    },
+    ai: {
+      expandFromSocial: (payload) => request('/api/newsletter-ai/expand-from-social', { method: 'POST', body: payload }),
+      extractSocial: (payload) => request('/api/newsletter-ai/extract-social', { method: 'POST', body: payload }),
+      subjectLines: (payload) => request('/api/newsletter-ai/subject-lines', { method: 'POST', body: payload }),
+    },
+  },
+  signupForms: {
+    list: () => request('/api/signup/forms'),
+    get: (id) => request(`/api/signup/forms/${id}`),
+    create: (payload) => request('/api/signup/forms', { method: 'POST', body: payload }),
+    update: (id, payload) => request(`/api/signup/forms/${id}`, { method: 'PATCH', body: payload }),
+    remove: (id) => request(`/api/signup/forms/${id}`, { method: 'DELETE' }),
+  },
+  prospects: {
+    list: (params = {}) => {
+      const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
+      return request(`/api/prospects${qs ? `?${qs}` : ''}`);
+    },
+    get: (id) => request(`/api/prospects/${id}`),
+    facets: () => request('/api/prospects/facets'),
+    stages: () => request('/api/prospects/stages/list'),
+    create: (payload) => request('/api/prospects', { method: 'POST', body: payload }),
+    update: (id, payload) => request(`/api/prospects/${id}`, { method: 'PATCH', body: payload }),
+    remove: (id) => request(`/api/prospects/${id}`, { method: 'DELETE' }),
+    move: (id, stage) => request(`/api/prospects/${id}/move`, { method: 'POST', body: { stage } }),
+    import: (rows) => request('/api/prospects/import', { method: 'POST', body: { rows } }),
+  },
+  emailTemplates: {
+    list: (params = {}) => {
+      const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
+      return request(`/api/email-templates${qs ? `?${qs}` : ''}`);
+    },
+    get: (id) => request(`/api/email-templates/${id}`),
+    create: (payload) => request('/api/email-templates', { method: 'POST', body: payload }),
+    update: (id, payload) => request(`/api/email-templates/${id}`, { method: 'PATCH', body: payload }),
+    remove: (id) => request(`/api/email-templates/${id}`, { method: 'DELETE' }),
+  },
+  outreach: {
+    aiPersonalize: (payload) => request('/api/outreach/ai-personalize', { method: 'POST', body: payload }),
+    send: (payload) => request('/api/outreach/send', { method: 'POST', body: payload }),
+    markReplied: (id, reply_text) => request(`/api/outreach/${id}/mark-replied`, { method: 'POST', body: { reply_text } }),
+    dailyStats: () => request('/api/outreach/daily-stats'),
+  },
+  meetings: {
+    list: (params = {}) => {
+      const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
+      return request(`/api/meetings${qs ? `?${qs}` : ''}`);
+    },
+    get: (id) => request(`/api/meetings/${id}`),
+    create: (payload) => request('/api/meetings', { method: 'POST', body: payload }),
+    update: (id, payload) => request(`/api/meetings/${id}`, { method: 'PATCH', body: payload }),
+    complete: (id, payload) => request(`/api/meetings/${id}/complete`, { method: 'POST', body: payload }),
+    remove: (id) => request(`/api/meetings/${id}`, { method: 'DELETE' }),
+    outcomes: () => request('/api/meetings/outcomes/list'),
+  },
+  pipeline: {
+    overview: () => request('/api/pipeline/overview'),
+    analytics: () => request('/api/pipeline/analytics'),
+    board: () => request('/api/pipeline/board'),
+  },
+  attribution: {
+    contentRevenue: () => request('/api/attribution/content-revenue'),
+    journey: (prospect_id) => request(`/api/attribution/journey/${prospect_id}`),
+    hotProspects: () => request('/api/attribution/hot-prospects'),
+    newsletterToProspect: (subscriber_id) => request('/api/attribution/newsletter-to-prospect', { method: 'POST', body: { subscriber_id } }),
+    prospectToNewsletter: (prospect_id) => request('/api/attribution/prospect-to-newsletter', { method: 'POST', body: { prospect_id } }),
+  },
+  insights: {
+    list: (status = 'active') => request(`/api/insights?status=${status}`),
+    generate: () => request('/api/insights/generate', { method: 'POST' }),
+    dismiss: (id) => request(`/api/insights/${id}/dismiss`, { method: 'POST' }),
+  },
+  unified: {
+    scorecard: () => request('/api/unified/scorecard'),
+    alerts: () => request('/api/unified/alerts'),
+  },
+  library: {
+    list: (params = {}) => {
+      const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
+      return request(`/api/content${qs ? `?${qs}` : ''}`);
+    },
+    get: (id) => request(`/api/content/${id}`),
+    update: (id, payload) => request(`/api/content/${id}`, { method: 'POST', body: payload }),
+    facets: () => request('/api/content/facets'),
+  },
+  metrics: {
+    list: (params = {}) => {
+      const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
+      return request(`/api/metrics${qs ? `?${qs}` : ''}`);
+    },
+    latest: () => request('/api/metrics/latest'),
+    save: (payload) => request('/api/metrics', { method: 'POST', body: payload }),
+    platforms: () => request('/api/metrics/platforms'),
+    trends: () => request('/api/metrics/trends'),
+    health: () => request('/api/metrics/health'),
+  },
+  outcomes: {
+    list: (params = {}) => {
+      const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
+      return request(`/api/outcomes${qs ? `?${qs}` : ''}`);
+    },
+    summary: () => request('/api/outcomes/summary'),
+    types: () => request('/api/outcomes/types'),
+    create: (payload) => request('/api/outcomes', { method: 'POST', body: payload }),
+    remove: (id) => request(`/api/outcomes/${id}`, { method: 'DELETE' }),
+  },
+  reviews: {
+    list: () => request('/api/reviews'),
+    get: (week_start) => request(`/api/reviews/${week_start}`),
+    save: (week_start, payload) => request(`/api/reviews/${week_start}`, { method: 'PUT', body: payload }),
+    summary: (week_start) => request(`/api/reviews/${week_start}/summary`),
+  },
+  health: () => request('/api/health'),
+  uploads: {
+    list: (params = {}) => {
+      const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
+      return request(`/api/uploads${qs ? `?${qs}` : ''}`);
+    },
+    tags: () => request('/api/uploads/tags'),
+    upload: async (file, { tags = [], notes = '' } = {}) => {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('tags', JSON.stringify(tags));
+      if (notes) fd.append('notes', notes);
+      const token = await getAccessToken().catch(() => null);
+      const res = await fetch('/api/uploads', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: fd,
+      });
+      const text = await res.text();
+      const data = text ? safeJson(text) : null;
+      if (!res.ok) {
+        const err = new Error((data && data.error) || `HTTP ${res.status}`);
+        err.status = res.status;
+        throw err;
+      }
+      return data;
+    },
+    patch: (id, payload) => request(`/api/uploads/${id}`, { method: 'PATCH', body: payload }),
+    remove: (id) => request(`/api/uploads/${id}`, { method: 'DELETE' }),
+  },
+  carousels: {
+    list: (params = {}) => {
+      const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
+      return request(`/api/carousels${qs ? `?${qs}` : ''}`);
+    },
+    get: (id) => request(`/api/carousels/${id}`),
+    create: (payload) => request('/api/carousels', { method: 'POST', body: payload }),
+    update: (id, payload) => request(`/api/carousels/${id}`, { method: 'PATCH', body: payload }),
+    remove: (id) => request(`/api/carousels/${id}`, { method: 'DELETE' }),
+    generate: (payload) => request('/api/carousels/generate', { method: 'POST', body: payload }),
+    parse: (text) => request('/api/carousels/parse', { method: 'POST', body: { text } }),
+  },
+};
