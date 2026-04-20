@@ -190,6 +190,11 @@ export const api = {
     save: (week_start, payload) => request(`/api/reviews/${week_start}`, { method: 'PUT', body: payload }),
     summary: (week_start) => request(`/api/reviews/${week_start}/summary`),
   },
+  briefings: {
+    list: () => request('/api/briefings'),
+    get: (id) => request(`/api/briefings/${id}`),
+    generate: (payload) => request('/api/briefings/generate', { method: 'POST', body: payload }),
+  },
   health: () => request('/api/health'),
   uploads: {
     list: (params = {}) => {

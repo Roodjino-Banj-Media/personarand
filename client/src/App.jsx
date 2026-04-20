@@ -8,6 +8,7 @@ import MetricsForm from './components/Metrics/MetricsForm.jsx';
 import CarouselView from './components/Carousel/CarouselView.jsx';
 import InspirationView from './components/Inspiration/InspirationView.jsx';
 import ReviewView from './components/Review/ReviewView.jsx';
+import BriefingView from './components/Briefing/BriefingView.jsx';
 import NewsletterView from './components/Newsletter/NewsletterView.jsx';
 import ProspectsView from './components/Prospects/ProspectsView.jsx';
 import AttributionView from './components/Attribution/AttributionView.jsx';
@@ -75,6 +76,7 @@ export default function App() {
             <Route path="/newsletter" element={<NewsletterView />} />
             <Route path="/prospects" element={<ProspectsView />} />
             <Route path="/attribution" element={<AttributionView />} />
+            <Route path="/briefing" element={<BriefingView />} />
             <Route path="/review" element={<ReviewView />} />
             <Route path="/metrics" element={<MetricsForm />} />
           </Routes>

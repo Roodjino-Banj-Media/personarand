@@ -9,6 +9,7 @@ const NAV = [
   { to: '/newsletter', label: 'Newsletter', hint: 'Owned audience' },
   { to: '/prospects', label: 'Prospects', hint: 'Outbound pipeline' },
   { to: '/attribution', label: 'Attribution', hint: 'Revenue intelligence' },
+  { to: '/briefing', label: 'Briefing', hint: 'Weekly angles + news' },
   { to: '/review', label: 'Review', hint: 'Weekly reflection' },
   { to: '/metrics', label: 'Metrics', hint: 'Weekly performance' },
 ];
