@@ -51,6 +51,17 @@ export default function CalendarView() {
     finally { setReseeding(false); }
   }
 
+  async function handleClearAll() {
+    if (!confirm(`Wipe ALL ${items.length} calendar items?\n\nThis does NOT delete generated content in your Library — only removes calendar entries. Anything derived from them stays.`)) return;
+    setReseeding(true);
+    try {
+      const r = await api.calendar.clearAll();
+      await load();
+      alert(`Cleared ${r.deleted} calendar items.`);
+    } catch (err) { alert(err.message); }
+    finally { setReseeding(false); }
+  }
+
   async function handleStatusChange(id, status) {
     try {
       const updated = await api.calendar.setStatus(id, status);
@@ -85,7 +96,12 @@ export default function CalendarView() {
             Act 1: The bet is paying off. Act 2: This is what intelligence looks like. Act 3: You need to be inside this.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          {items.length > 0 && (
+            <button className="btn-ghost text-xs text-danger" onClick={handleClearAll} disabled={reseeding}>
+              {reseeding ? '…' : `🗑 Clear all (${items.length})`}
+            </button>
+          )}
           <button className="btn" onClick={() => setShowIntelligence('gaps')}>📊 Gaps</button>
           <button className="btn" onClick={() => setShowIntelligence('brainstorm')}>💡 Brainstorm</button>
           <button className="btn-primary" onClick={() => setShowIntelligence('plan')}>✨ Plan with AI</button>
@@ -183,6 +199,14 @@ export default function CalendarView() {
           onClose={() => setActiveItem(null)}
           onGenerate={() => setGenerateFor(activeItem)}
           onDeepen={() => setDeepenFor(activeItem)}
+          onDelete={async () => {
+            if (!confirm(`Delete "${activeItem.title}"?\n\nThis removes it from the calendar. Any generated content derived from it stays in Library.`)) return;
+            try {
+              await api.calendar.remove(activeItem.id);
+              setActiveItem(null);
+              await load();
+            } catch (err) { alert(`Delete failed: ${err.message}`); }
+          }}
           onStatusChange={(status) => handleStatusChange(activeItem.id, status)}
         />
       )}
@@ -221,7 +245,7 @@ function Field({ label, children }) {
   );
 }
 
-function DetailDrawer({ item, onClose, onGenerate, onDeepen, onStatusChange }) {
+function DetailDrawer({ item, onClose, onGenerate, onDeepen, onDelete, onStatusChange }) {
   return (
     <div className="fixed inset-0 z-40 flex">
       <div className="flex-1 bg-black/60" onClick={onClose} />
@@ -266,6 +290,11 @@ function DetailDrawer({ item, onClose, onGenerate, onDeepen, onStatusChange }) {
           <button className="btn-primary" onClick={onGenerate}>
             Generate content with Claude Opus 4.7 →
           </button>
+          {onDelete && (
+            <button className="btn-ghost text-danger text-xs mt-2" onClick={onDelete}>
+              Delete this calendar item
+            </button>
+          )}
         </div>
       </div>
     </div>

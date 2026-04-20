@@ -9,6 +9,7 @@ import CarouselView from './components/Carousel/CarouselView.jsx';
 import InspirationView from './components/Inspiration/InspirationView.jsx';
 import ReviewView from './components/Review/ReviewView.jsx';
 import BriefingView from './components/Briefing/BriefingView.jsx';
+import KnowledgeView from './components/Knowledge/KnowledgeView.jsx';
 import NewsletterView from './components/Newsletter/NewsletterView.jsx';
 import ProspectsView from './components/Prospects/ProspectsView.jsx';
 import AttributionView from './components/Attribution/AttributionView.jsx';
@@ -77,6 +78,7 @@ export default function App() {
             <Route path="/prospects" element={<ProspectsView />} />
             <Route path="/attribution" element={<AttributionView />} />
             <Route path="/briefing" element={<BriefingView />} />
+            <Route path="/knowledge" element={<KnowledgeView />} />
             <Route path="/review" element={<ReviewView />} />
             <Route path="/metrics" element={<MetricsForm />} />
           </Routes>

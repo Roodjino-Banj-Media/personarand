@@ -5,6 +5,45 @@ const {
   MAX_TOKENS_BY_TYPE,
   buildUserMessage,
 } = require('./prompts');
+const { query } = require('./db');
+
+// Fetch active KB entries + format them for system prompt injection.
+// Cached for 60s since they change infrequently.
+let kbCache = { text: '', at: 0, tokenCount: 0 };
+async function getKnowledgeBaseBlock() {
+  if (Date.now() - kbCache.at < 60_000) return kbCache;
+  try {
+    const rows = await query(`
+      SELECT title, category, content_md, token_estimate
+      FROM knowledge_base
+      WHERE is_active = TRUE
+      ORDER BY
+        CASE category
+          WHEN 'positioning' THEN 1
+          WHEN 'voice' THEN 2
+          WHEN 'framework' THEN 3
+          WHEN 'project' THEN 4
+          WHEN 'client' THEN 5
+          WHEN 'haiti' THEN 6
+          ELSE 9
+        END,
+        updated_at DESC
+    `);
+    if (rows.length === 0) {
+      kbCache = { text: '', at: Date.now(), tokenCount: 0 };
+      return kbCache;
+    }
+    const blocks = rows.map((r) => `### ${r.title} (${r.category})\n${r.content_md}`).join('\n\n---\n\n');
+    const wrapped = `\n\n===============================\n# USER-SPECIFIC CONTEXT (living knowledge base)\n===============================\n\nThe following is context Roodjino has added himself. Use it as authoritative when it conflicts with general assumptions. Reference specifics from here when generating content — this is what makes the output not-generic.\n\n${blocks}\n\n===============================\n# END USER CONTEXT\n===============================`;
+    const tokenCount = Math.ceil(wrapped.length / 4);
+    kbCache = { text: wrapped, at: Date.now(), tokenCount };
+    return kbCache;
+  } catch (err) {
+    console.warn('[kb] fetch failed:', err.message);
+    return { text: '', at: Date.now(), tokenCount: 0 };
+  }
+}
+function invalidateKbCache() { kbCache = { text: '', at: 0, tokenCount: 0 }; }
 
 // In-app Generate uses Opus 4.7 (top-tier quality).
 // For heavy refinement, use the Copy Prompt button and iterate on claude.ai
@@ -38,16 +77,21 @@ async function generate({ type, platform, topic, tone, length, funnel_layer, ext
   const temperature = TEMPERATURE_BY_TYPE[normalizedType] ?? 0.7;
 
   // Opus 4.7 deprecated the temperature parameter; omit for that family.
+  // System prompt has two layers:
+  //   1. Brand voice (cached — stable across all calls)
+  //   2. User knowledge base (cached separately — changes when user edits KB)
+  const kb = await getKnowledgeBaseBlock();
+  const systemBlocks = [
+    { type: 'text', text: BRAND_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+  ];
+  if (kb.text) {
+    systemBlocks.push({ type: 'text', text: kb.text, cache_control: { type: 'ephemeral' } });
+  }
+
   const params = {
     model: MODEL,
     max_tokens: maxTokens,
-    system: [
-      {
-        type: 'text',
-        text: BRAND_SYSTEM_PROMPT,
-        cache_control: { type: 'ephemeral' },
-      },
-    ],
+    system: systemBlocks,
     messages: [
       { role: 'user', content: userMessage },
     ],
@@ -86,4 +130,4 @@ async function healthCheck() {
   }
 }
 
-module.exports = { generate, healthCheck, MODEL };
+module.exports = { generate, healthCheck, MODEL, invalidateKbCache, getKnowledgeBaseBlock };

@@ -47,6 +47,7 @@ app.use('/api/insights', require('./routes/insights'));
 app.use('/api/unified', require('./routes/unified'));
 app.use('/api/cron', require('./routes/cron'));
 app.use('/api/briefings', require('./routes/briefings'));
+app.use('/api/knowledge', require('./routes/knowledge'));
 
 // Short URL for hosted signup pages
 app.get('/s/:id', (req, res) => res.redirect(302, `/api/signup/page/${req.params.id}`));

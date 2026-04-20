@@ -186,6 +186,17 @@ router.get('/gaps', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+router.post('/clear', async (req, res, next) => {
+  try {
+    const db = openDb();
+    // Detach any generated content from calendar items so we don't break FKs
+    await db.prepare(`UPDATE generated_content SET calendar_id = NULL WHERE calendar_id IS NOT NULL`).run();
+    // Wipe calendar
+    const result = await db.prepare(`DELETE FROM content_calendar`).run();
+    res.json({ ok: true, deleted: result.changes });
+  } catch (e) { next(e); }
+});
+
 router.post('/reseed', async (req, res, next) => {
   try {
     const db = openDb();
