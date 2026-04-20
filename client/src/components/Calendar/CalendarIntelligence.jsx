@@ -47,27 +47,74 @@ function PlanMonthTab({ onItemsAdded, onClose }) {
     platforms: ['LinkedIn', 'X', 'Instagram', 'Instagram Reels', 'TikTok', 'YouTube'],
   });
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(null); // { current, total, message }
   const [items, setItems] = useState([]);
   const [error, setError] = useState(null);
   const [saved, setSaved] = useState(null);
 
   async function run() {
     if (form.theme.length < 10) { setError('Theme must be at least 10 chars'); return; }
-    setBusy(true); setError(null); setItems([]); setSaved(null);
+    setBusy(true); setError(null); setItems([]); setSaved(null); setProgress(null);
+
+    // Chunk >7 days into weekly calls to stay under Vercel's 60s function limit.
+    const chunks = [];
+    const totalDays = form.days;
+    let remaining = totalDays;
+    let chunkWeek = form.start_week;
+    while (remaining > 0) {
+      const chunkDays = Math.min(7, remaining);
+      chunks.push({ days: chunkDays, start_week: chunkWeek });
+      remaining -= chunkDays;
+      chunkWeek += 1;
+    }
+
     try {
-      const r = await api.calendar.planMonth({ ...form, save: false });
-      if (r.parse_error) setError(`AI output parse issue: ${r.parse_error}. Raw output: ${(r.raw || '').slice(0, 300)}`);
-      setItems(r.items || []);
-    } catch (err) { setError(err.message); }
-    finally { setBusy(false); }
+      const allItems = [];
+      for (let i = 0; i < chunks.length; i++) {
+        const c = chunks[i];
+        setProgress({ current: i + 1, total: chunks.length, message: `Planning week ${c.start_week}…` });
+        const contextWithHistory = i > 0
+          ? `${form.context}\n\nPrior week items (for continuity — don't repeat, build on them):\n${allItems.slice(-10).map((it) => `- ${it.title}`).join('\n')}`
+          : form.context;
+        const r = await api.calendar.planMonth({
+          ...form,
+          days: c.days,
+          start_week: c.start_week,
+          context: contextWithHistory,
+          save: false,
+        });
+        if (r.parse_error) {
+          setError(`Week ${c.start_week} parse issue: ${r.parse_error}. Stopping. ${allItems.length} items generated so far.`);
+          break;
+        }
+        allItems.push(...(r.items || []));
+      }
+      setItems(allItems);
+      setProgress(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function acceptAll() {
     if (items.length === 0) return;
     setBusy(true);
     try {
-      const r = await api.calendar.planMonth({ ...form, save: true });
-      setSaved(`Saved ${r.count} items into the calendar.`);
+      // Save items directly — already generated via chunked calls above.
+      for (const item of items) {
+        await api.calendar.create({
+          week: item.week,
+          day: item.day,
+          title: item.title,
+          description: item.description,
+          content_type: item.content_type,
+          platforms: item.platforms || [],
+          funnel_layer: item.funnel_layer,
+        });
+      }
+      setSaved(`Saved ${items.length} items into the calendar.`);
       if (onItemsAdded) onItemsAdded();
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
@@ -110,11 +157,26 @@ function PlanMonthTab({ onItemsAdded, onClose }) {
       </div>
 
       <div className="flex justify-between items-end">
-        <div className="text-[11px] text-text-secondary">Targets/week: Discovery 6 · Authority 4 · Trust 3 · Conversion 2 · Identity 2</div>
+        <div className="text-[11px] text-text-secondary">
+          Targets/week: Discovery 6 · Authority 4 · Trust 3 · Conversion 2 · Identity 2
+          {form.days > 7 && <div className="mt-1">Plans &gt; 7 days are split into weekly chunks (stays under Vercel's 60s limit).</div>}
+        </div>
         <button className="btn-primary" onClick={run} disabled={busy || !form.theme}>
           {busy ? 'Generating…' : items.length > 0 ? 'Regenerate' : 'Generate plan'}
         </button>
       </div>
+
+      {progress && (
+        <div className="card-pad border-primary/40 bg-primary/5">
+          <div className="flex items-center justify-between text-sm">
+            <span>{progress.message}</span>
+            <span className="font-mono text-text-secondary">{progress.current} / {progress.total}</span>
+          </div>
+          <div className="mt-2 h-1.5 rounded-full bg-[#1f1f1f] overflow-hidden">
+            <div className="h-full bg-primary transition-all" style={{ width: `${(progress.current / progress.total) * 100}%` }} />
+          </div>
+        </div>
+      )}
 
       {error && <div className="text-danger text-xs">{error}</div>}
       {saved && <div className="text-success text-sm">{saved}</div>}

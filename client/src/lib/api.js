@@ -36,6 +36,7 @@ export const api = {
       method: 'POST',
       body: { status },
     }),
+    create: (payload) => request('/api/calendar', { method: 'POST', body: payload }),
     planMonth: (payload) => request('/api/calendar-ai/plan-month', { method: 'POST', body: payload }),
     brainstorm: (payload) => request('/api/calendar-ai/brainstorm', { method: 'POST', body: payload }),
     deepen: (id) => request(`/api/calendar-ai/${id}/deepen`, { method: 'POST' }),
