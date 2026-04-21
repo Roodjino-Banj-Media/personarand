@@ -37,7 +37,10 @@ Fill every {variable} in the template with the most specific, credible, grounded
 
     const extra = `Return ONLY a JSON object with two keys: "subject" and "body". No code fences.`;
 
-    const result = await generate({ type: 'article', platform: 'email', topic, tone: 'sharp', length: 'short', extra });
+    // Email personalization is template variable substitution with light rewrite.
+    // Haiku nails this and is the hot path during outreach sessions (10-20 emails
+    // in a row → warm cache → significant cost + latency win vs Opus).
+    const result = await generate({ type: 'article', platform: 'email', topic, tone: 'sharp', length: 'short', extra, model: 'haiku' });
     let text = result.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
     try {
       const parsed = JSON.parse(text);

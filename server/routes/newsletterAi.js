@@ -75,7 +75,8 @@ router.post('/extract-social', async (req, res, next) => {
 }
 No markdown code fences. Just the array.`;
 
-    const result = await generate({ type: 'article', platform: 'multi', topic, tone: 'balanced', length: 'medium', extra });
+    // Extraction is mechanical — Haiku handles JSON extraction well at ~5x lower cost.
+    const result = await generate({ type: 'article', platform: 'multi', topic, tone: 'balanced', length: 'medium', extra, model: 'haiku' });
     let text = result.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
     let posts = [];
     try { posts = JSON.parse(text); } catch { return res.json({ posts: [], raw: result.text, usage: result.usage, parse_error: 'Could not parse JSON.' }); }
@@ -97,7 +98,8 @@ router.post('/subject-lines', async (req, res, next) => {
 }
 No code fences, no commentary.`;
 
-    const result = await generate({ type: 'article', platform: 'newsletter', topic, tone: 'sharp', length: 'short', extra });
+    // Subject-line variations are short, structured JSON — Haiku is plenty.
+    const result = await generate({ type: 'article', platform: 'newsletter', topic, tone: 'sharp', length: 'short', extra, model: 'haiku' });
     let text = result.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
     let options = [];
     try { options = JSON.parse(text); } catch { return res.json({ options: [], raw: result.text, parse_error: 'Could not parse JSON' }); }

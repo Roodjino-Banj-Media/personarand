@@ -45,10 +45,23 @@ async function getKnowledgeBaseBlock() {
 }
 function invalidateKbCache() { kbCache = { text: '', at: 0, tokenCount: 0 }; }
 
-// In-app Generate uses Opus 4.7 (top-tier quality).
-// For heavy refinement, use the Copy Prompt button and iterate on claude.ai
-// where Max/Pro gives unlimited Opus 4.7 flat-rate \u2014 avoids per-call API costs.
+// Default model for original long-form creative work (Generate, Plan, Brainstorm,
+// Briefing, Deepen, Carousels, Newsletter expand). Opus 4.7 is top-tier quality.
 const MODEL = 'claude-opus-4-7';
+// Lightweight model for structured extraction, classification, templating.
+// Haiku 4.5 is ~5x cheaper on input and ~5x cheaper on output than Opus 4.7
+// and handles JSON extraction / short personalization / gaps analysis just fine.
+const HAIKU_MODEL = 'claude-haiku-4-5';
+
+// Resolve a model override keyword to the actual model ID. Accepts:
+//   - undefined / 'opus'  → default Opus 4.7
+//   - 'haiku'             → Haiku 4.5
+//   - an explicit model ID string → passed through verbatim (escape hatch)
+function resolveModel(override) {
+  if (!override || override === 'opus') return MODEL;
+  if (override === 'haiku') return HAIKU_MODEL;
+  return override;
+}
 
 let client = null;
 function getClient() {
@@ -62,7 +75,7 @@ function getClient() {
   return client;
 }
 
-async function generate({ type, platform, topic, tone, length, funnel_layer, extra }) {
+async function generate({ type, platform, topic, tone, length, funnel_layer, extra, model }) {
   const normalizedType = type || 'linkedin-short';
   const userMessage = buildUserMessage({
     type: normalizedType,
@@ -75,11 +88,14 @@ async function generate({ type, platform, topic, tone, length, funnel_layer, ext
   });
   const maxTokens = MAX_TOKENS_BY_TYPE[normalizedType] || 1500;
   const temperature = TEMPERATURE_BY_TYPE[normalizedType] ?? 0.7;
+  const resolvedModel = resolveModel(model);
 
-  // Opus 4.7 deprecated the temperature parameter; omit for that family.
   // System prompt has two layers:
-  //   1. Brand voice (cached — stable across all calls)
+  //   1. Brand voice (cached — stable across all calls, same voice on Haiku or Opus)
   //   2. User knowledge base (cached separately — changes when user edits KB)
+  // Caches are per-model, so Haiku and Opus warm independently. This is fine:
+  // outreach personalization is bursty (many calls in a session → warm cache),
+  // and weekly tasks amortize the cache write against cheaper per-token rates.
   const kb = await getKnowledgeBaseBlock();
   const systemBlocks = [
     { type: 'text', text: BRAND_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
@@ -89,14 +105,16 @@ async function generate({ type, platform, topic, tone, length, funnel_layer, ext
   }
 
   const params = {
-    model: MODEL,
+    model: resolvedModel,
     max_tokens: maxTokens,
     system: systemBlocks,
     messages: [
       { role: 'user', content: userMessage },
     ],
   };
-  if (!MODEL.startsWith('claude-opus-4-7')) {
+  // Opus 4.7 removed the temperature parameter entirely; any other model
+  // (Haiku 4.5, Sonnet 4.6, etc.) still accepts it.
+  if (!resolvedModel.startsWith('claude-opus-4-7')) {
     params.temperature = temperature;
   }
 
