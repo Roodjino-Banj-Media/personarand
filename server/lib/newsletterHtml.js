@@ -1,11 +1,39 @@
 const { marked } = require('marked');
+const sanitizeHtml = require('sanitize-html');
 
 marked.setOptions({ gfm: true, breaks: true });
+
+// Sanitize the markdown-rendered HTML BEFORE sending to subscribers. Without
+// this, a pasted `<img onerror=...>` or `<script>` would execute in every
+// recipient's mail client (or webmail) — a stored-XSS against readers.
+// Email clients strip most of this anyway, but webmail (Gmail web, Apple
+// Mail mobile) is inconsistent and the server is the right place to enforce.
+const EMAIL_SANITIZE_OPTS = {
+  allowedTags: [
+    'h1', 'h2', 'h3', 'h4', 'p', 'br', 'hr',
+    'strong', 'em', 'u', 's', 'del', 'ins',
+    'a', 'img',
+    'ul', 'ol', 'li',
+    'blockquote', 'code', 'pre',
+    'table', 'thead', 'tbody', 'tr', 'td', 'th',
+    'span', 'div',
+  ],
+  allowedAttributes: {
+    a: ['href', 'title', 'target', 'rel'],
+    img: ['src', 'alt', 'title', 'width', 'height'],
+    '*': [], // no event handlers, no style attributes on arbitrary tags
+  },
+  allowedSchemes: ['http', 'https', 'mailto'],
+  allowProtocolRelative: false,
+  // Drop unknown tags entirely rather than escaping them (keeps email clean).
+  disallowedTagsMode: 'discard',
+};
 
 // Minimal, email-client-safe HTML wrapper. Uses tables and inline styles
 // because Gmail/Outlook/Apple Mail all strip modern CSS.
 function renderNewsletterHtml({ title, markdown, subscriberEmail, unsubscribeUrl, trackingPixelUrl }) {
-  const bodyHtml = marked.parse(markdown || '');
+  const rawBody = marked.parse(markdown || '');
+  const bodyHtml = sanitizeHtml(rawBody, EMAIL_SANITIZE_OPTS);
 
   return `<!DOCTYPE html>
 <html lang="en">

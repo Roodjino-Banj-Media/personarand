@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import { api } from '../../lib/api.js';
 
 marked.setOptions({ gfm: true, breaks: true });
@@ -244,7 +245,18 @@ export default function NewsletterCompose({ issueId, onBack }) {
     }
   }
 
-  const previewHtml = useMemo(() => marked.parse(markdown || ''), [markdown]);
+  // Sanitize the markdown-rendered HTML before injecting it into the DOM.
+  // Without this, pasted markdown containing `<img onerror>`, `<script>`, or
+  // `<a href="javascript:...">` would execute on preview.
+  // FORBID_TAGS/FORBID_ATTR defaults cover script + event handlers; we also
+  // strip `style` to keep previews consistent with the email template.
+  const previewHtml = useMemo(() => {
+    const raw = marked.parse(markdown || '');
+    return DOMPurify.sanitize(raw, {
+      USE_PROFILES: { html: true },
+      FORBID_ATTR: ['style', 'onerror', 'onload', 'onclick'],
+    });
+  }, [markdown]);
   const wordCount = markdown.trim() ? markdown.trim().split(/\s+/).length : 0;
   const readingMins = Math.max(1, Math.round(wordCount / 220));
 
