@@ -24,9 +24,21 @@ function isPublic(path) {
 }
 
 async function authMiddleware(req, res, next) {
-  // Local dev without Supabase configured — allow all so the app is usable.
-  // WARNING: in production, always set SUPABASE_URL + ALLOWED_EMAILS.
-  if (!process.env.SUPABASE_URL) return next();
+  // Fail-closed in production: if SUPABASE_URL is missing (env dropped on a
+  // redeploy, promotion from preview without the var, etc.) the whole app
+  // would otherwise become open to the internet. Better to 503 loudly.
+  if (!process.env.SUPABASE_URL) {
+    if (process.env.NODE_ENV === 'production') {
+      // Public paths (health, webhooks, unsubscribe, static) still pass — we
+      // don't want a broken env to break Resend callbacks or the signup page.
+      if (isPublic(req.path) || !req.path.startsWith('/api')) return next();
+      return res.status(503).json({
+        error: 'Auth not configured — SUPABASE_URL is missing in this deploy',
+      });
+    }
+    // Local dev without Supabase configured — allow all so the app is usable.
+    return next();
+  }
 
   if (isPublic(req.path)) return next();
 
