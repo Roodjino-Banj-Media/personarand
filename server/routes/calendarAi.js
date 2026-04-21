@@ -50,8 +50,10 @@ Respect the 15-day Act structure: Week 1-2 = "The bet is paying off", Week 2-3 =
 }
 No code fences. Aim for ~${weeklyTotal * weeks} items total.`;
 
+    // Planning should reflect what's actually worked — inject top performers.
     const result = await generate({
       type: 'article', platform: 'calendar', topic, tone: 'sharp', length: 'long', extra,
+      useFeedbackLoop: true,
     });
     const parsed = parseJsonArray(result.text);
     if (!parsed.items) return res.json({ items: [], raw: result.text, parse_error: parsed.error });
@@ -107,7 +109,8 @@ ${funnel_layers.join(', ')}`;
 }
 No code fences.`;
 
-    const result = await generate({ type: 'article', platform: 'calendar', topic, tone: 'sharp', length: 'medium', extra });
+    // Brainstorm is creative ideation — reference strong past posts.
+    const result = await generate({ type: 'article', platform: 'calendar', topic, tone: 'sharp', length: 'medium', extra, useFeedbackLoop: true });
     const parsed = parseJsonArray(result.text);
     res.json({ angles: parsed.items || [], usage: result.usage, parse_error: parsed.error, raw: parsed.error ? result.text : undefined });
   } catch (err) { next(err); }
@@ -140,7 +143,8 @@ Produce a working brief, not the final post.`;
 }
 No code fences.`;
 
-    const result = await generate({ type: 'article', platform: 'calendar', topic, tone: 'sharp', length: 'medium', extra });
+    // Deepen produces a working brief — feedback loop keeps outlines aligned with working register.
+    const result = await generate({ type: 'article', platform: 'calendar', topic, tone: 'sharp', length: 'medium', extra, useFeedbackLoop: true });
     const cleaned = result.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
     try {
       const parsed = JSON.parse(cleaned);

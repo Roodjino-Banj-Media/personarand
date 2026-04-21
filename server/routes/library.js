@@ -1,26 +1,30 @@
 const express = require('express');
 const { openDb } = require('../db');
+const { invalidateTopPerformersCache } = require('../lib/anthropic');
 
 const router = express.Router();
 
 router.get('/', async (req, res, next) => {
   try {
     const db = openDb();
-    const { platform, content_type, funnel_layer, status, q, sort } = req.query;
+    const { platform, content_type, funnel_layer, status, performance, q, sort } = req.query;
     const clauses = [];
     const params = {};
     if (platform) { clauses.push('gc.platform = @platform'); params.platform = platform; }
     if (content_type) { clauses.push('gc.content_type = @content_type'); params.content_type = content_type; }
     if (status) { clauses.push('gc.status = @status'); params.status = status; }
     if (funnel_layer) { clauses.push('cc.funnel_layer ILIKE @funnel_layer'); params.funnel_layer = `%${funnel_layer}%`; }
+    if (performance) { clauses.push('gc.performance = @performance'); params.performance = performance; }
     if (q) { clauses.push('(gc.title ILIKE @q OR gc.body ILIKE @q)'); params.q = `%${q}%`; }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
 
+    // "best" sort: strong first, then good, then unrated, then poor; within each bucket newest first.
     const orderBy = {
       newest: 'gc.created_at DESC',
       oldest: 'gc.created_at ASC',
       updated: 'gc.updated_at DESC',
       unposted: `CASE WHEN gc.status = 'draft' THEN 0 ELSE 1 END, gc.created_at DESC`,
+      best: `CASE gc.performance WHEN 'strong' THEN 0 WHEN 'good' THEN 1 WHEN 'poor' THEN 3 ELSE 2 END, gc.created_at DESC`,
     }[sort] || 'gc.created_at DESC';
 
     const rows = await db.prepare(`
@@ -59,6 +63,7 @@ router.get('/export', async (req, res, next) => {
       const status = r.status || '—';
       const platform = r.platform || 'multi';
       const type = r.content_type || '—';
+      const perf = r.performance || '—';
       const calInfo = r.calendar_title
         ? `Week ${r.calendar_week} · ${r.calendar_title}${r.calendar_funnel_layer ? ` · ${r.calendar_funnel_layer}` : ''}`
         : 'Free-form';
@@ -70,6 +75,7 @@ router.get('/export', async (req, res, next) => {
       lines.push(`- **Platform:** ${platform}`);
       lines.push(`- **Type:** ${type}`);
       lines.push(`- **Status:** ${status}`);
+      lines.push(`- **Performance:** ${perf}`);
       lines.push(`- **Origin:** ${calInfo}`);
       if (r.performance_notes) lines.push(`- **Performance notes:** ${r.performance_notes.replace(/\n/g, ' ')}`);
       lines.push('');
@@ -99,6 +105,28 @@ router.get('/facets', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * Top performers — the most recent `limit` posts the user has rated 'strong'.
+ * Used internally by the Opus generate() path to inject tonal reference.
+ * Default limit 5; capped at 10 to keep the prompt cost bounded.
+ * MUST be declared before `/:id` so Express doesn't treat 'top-performers'
+ * as an id parameter.
+ */
+router.get('/top-performers', async (req, res, next) => {
+  try {
+    const db = openDb();
+    const limit = Math.min(Math.max(Number(req.query.limit) || 5, 1), 10);
+    const rows = await db.prepare(`
+      SELECT id, title, body, platform, content_type, created_at
+      FROM generated_content
+      WHERE performance = 'strong'
+      ORDER BY created_at DESC
+      LIMIT ${limit}
+    `).all();
+    res.json(rows);
+  } catch (e) { next(e); }
+});
+
 router.get('/:id', async (req, res, next) => {
   try {
     const db = openDb();
@@ -111,23 +139,35 @@ router.get('/:id', async (req, res, next) => {
 router.post('/:id', async (req, res, next) => {
   try {
     const db = openDb();
-    const { body, title, status, performance_notes } = req.body || {};
+    const { body, title, status, performance_notes, performance } = req.body || {};
     const existing = await db.prepare('SELECT * FROM generated_content WHERE id = ?').get([req.params.id]);
     if (!existing) return res.status(404).json({ error: 'Not found' });
 
+    // Validate performance enum — CHECK constraint also enforces, but fail
+    // faster with a clean error.
+    if (performance !== undefined && performance !== null && !['poor', 'good', 'strong'].includes(performance)) {
+      return res.status(400).json({ error: `performance must be one of: poor, good, strong (got: ${performance})` });
+    }
+
     await db.prepare(`
       UPDATE generated_content
-      SET body = ?, title = ?, status = ?, performance_notes = ?, updated_at = CURRENT_TIMESTAMP
+      SET body = ?, title = ?, status = ?, performance_notes = ?, performance = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run([
       body ?? existing.body,
       title ?? existing.title,
       status ?? existing.status,
       performance_notes ?? existing.performance_notes,
+      performance !== undefined ? performance : existing.performance,
       req.params.id,
     ]);
 
     const row = await db.prepare('SELECT * FROM generated_content WHERE id = ?').get([req.params.id]);
+    // If the rating changed, drop the top-performers cache so the next
+    // generation call sees the fresh list without waiting 60s.
+    if (performance !== undefined && performance !== existing.performance) {
+      invalidateTopPerformersCache();
+    }
     res.json(row);
   } catch (e) { next(e); }
 });

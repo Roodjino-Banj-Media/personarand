@@ -45,6 +45,66 @@ async function getKnowledgeBaseBlock() {
 }
 function invalidateKbCache() { kbCache = { text: '', at: 0, tokenCount: 0 }; }
 
+/**
+ * Fetch the user's top-rated posts to inject as tonal reference into new
+ * generations. This is what closes the feedback loop: mark posts 'strong'
+ * in the Library → they show up here → the AI learns your register.
+ *
+ * Cached for 60s like the KB. Re-fetched when a rating changes isn't critical
+ * (worst case: one stale generation before the cache refreshes).
+ *
+ * Goes into the USER MESSAGE, not the system prompt, so rating a new post
+ * doesn't invalidate the brand-voice cache.
+ */
+let topPerformersCache = { items: [], at: 0 };
+async function getTopPerformers(limit = 5) {
+  if (Date.now() - topPerformersCache.at < 60_000 && topPerformersCache.items.length >= limit) {
+    return topPerformersCache.items.slice(0, limit);
+  }
+  try {
+    const rows = await query(`
+      SELECT title, body, platform, content_type
+      FROM generated_content
+      WHERE performance = 'strong'
+      ORDER BY created_at DESC
+      LIMIT $1
+    `, [limit]);
+    topPerformersCache = { items: rows || [], at: Date.now() };
+    return rows || [];
+  } catch (err) {
+    // If the column doesn't exist yet (migration hasn't run) just return [].
+    // The generation still works; it just won't have the feedback loop.
+    console.warn('[top-performers] fetch failed:', err.message);
+    return [];
+  }
+}
+function invalidateTopPerformersCache() { topPerformersCache = { items: [], at: 0 }; }
+
+/**
+ * Format the top performers as a text block to prepend to the user message.
+ * Returns empty string if there are no rated posts — first-time users see
+ * the exact same behavior as before, no regression.
+ */
+function formatTopPerformersBlock(performers) {
+  if (!performers || performers.length === 0) return '';
+  const excerpts = performers.map((p, i) => {
+    const body = (p.body || '').slice(0, 600);
+    const truncated = (p.body || '').length > 600 ? '…' : '';
+    return `### Strong post ${i + 1} — ${p.platform || 'multi'} / ${p.content_type || 'post'}\n${p.title ? `TITLE: ${p.title}\n` : ''}${body}${truncated}`;
+  }).join('\n\n---\n\n');
+  return `YOUR RECENT STRONG-PERFORMING POSTS (Roodjino rated these as "strong" — use them as tonal and structural reference; these are what your audience actually responded to):
+
+${excerpts}
+
+=== END REFERENCE POSTS ===
+
+Now handle the request below. The reference posts above are for voice calibration only — do not copy their subject matter.
+
+---
+
+`;
+}
+
 // Default model for original long-form creative work (Generate, Plan, Brainstorm,
 // Briefing, Deepen, Carousels, Newsletter expand). Opus 4.7 is top-tier quality.
 const MODEL = 'claude-opus-4-7';
@@ -123,9 +183,9 @@ function humanizeAnthropicError(err) {
   return e;
 }
 
-async function generate({ type, platform, topic, tone, length, funnel_layer, extra, model }) {
+async function generate({ type, platform, topic, tone, length, funnel_layer, extra, model, useFeedbackLoop = false }) {
   const normalizedType = type || 'linkedin-short';
-  const userMessage = buildUserMessage({
+  let userMessage = buildUserMessage({
     type: normalizedType,
     platform,
     topic,
@@ -134,6 +194,16 @@ async function generate({ type, platform, topic, tone, length, funnel_layer, ext
     funnel_layer,
     extra,
   });
+
+  // Inject the user's top-rated prior posts as tonal reference. Opt-in via
+  // `useFeedbackLoop: true` — default stays off so Haiku extraction tasks
+  // don't eat tokens on irrelevant context.
+  if (useFeedbackLoop) {
+    const performers = await getTopPerformers(5);
+    const block = formatTopPerformersBlock(performers);
+    if (block) userMessage = block + userMessage;
+  }
+
   const maxTokens = MAX_TOKENS_BY_TYPE[normalizedType] || 1500;
   const temperature = TEMPERATURE_BY_TYPE[normalizedType] ?? 0.7;
   const resolvedModel = resolveModel(model);
@@ -203,4 +273,11 @@ async function healthCheck() {
   }
 }
 
-module.exports = { generate, healthCheck, MODEL, invalidateKbCache, getKnowledgeBaseBlock };
+module.exports = {
+  generate,
+  healthCheck,
+  MODEL,
+  invalidateKbCache,
+  invalidateTopPerformersCache,
+  getKnowledgeBaseBlock,
+};

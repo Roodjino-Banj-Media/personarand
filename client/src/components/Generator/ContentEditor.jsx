@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api.js';
+import { RatingButtons } from '../Library/LibraryView.jsx';
 
 const STATUS_OPTIONS = ['draft', 'scheduled', 'posted', 'archived'];
 
@@ -18,6 +19,7 @@ export default function ContentEditor({ initial, platform, type, onRegenerate, r
   const [body, setBody] = useState(initial.body || '');
   const [title, setTitle] = useState(initial.title || '');
   const [status, setStatus] = useState(initial.status || 'draft');
+  const [performance, setPerformance] = useState(initial.performance || null);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState(null);
   const [autoSaveMsg, setAutoSaveMsg] = useState(null);
@@ -38,6 +40,7 @@ export default function ContentEditor({ initial, platform, type, onRegenerate, r
     setBody(initial.body || '');
     setTitle(initial.title || '');
     setStatus(initial.status || 'draft');
+    setPerformance(initial.performance || null);
     setId(initial.id);
     setSavedAt(null);
     setAutoSaveMsg(null);
@@ -47,6 +50,19 @@ export default function ContentEditor({ initial, platform, type, onRegenerate, r
       status: initial.status || 'draft',
     };
   }, [initial.id]);
+
+  async function handleRate(next) {
+    // Toggle off if clicking the current rating.
+    const value = performance === next ? null : next;
+    const prev = performance;
+    setPerformance(value);
+    try {
+      await api.library.rate(id, value);
+    } catch (err) {
+      setPerformance(prev);
+      alert(`Rating failed: ${err.message}`);
+    }
+  }
 
   const words = body.trim() ? body.trim().split(/\s+/).length : 0;
   const chars = body.length;
@@ -135,6 +151,9 @@ export default function ContentEditor({ initial, platform, type, onRegenerate, r
           placeholder="Untitled"
         />
         <div className="flex items-center gap-2">
+          {id && (
+            <RatingButtons performance={performance} onRate={handleRate} />
+          )}
           <select
             className="input py-1 text-xs w-32"
             value={status}

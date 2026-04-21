@@ -9,7 +9,9 @@ router.post('/content', async (req, res, next) => {
     const { calendar_id, type, platform, topic, tone, length, funnel_layer, extra, save = true } = req.body || {};
     if (!type) return res.status(400).json({ error: 'type is required' });
 
-    const result = await generate({ type, platform, topic, tone, length, funnel_layer, extra });
+    // Feedback loop: inject top-rated prior posts as tonal reference so the
+    // AI learns from what's actually performed.
+    const result = await generate({ type, platform, topic, tone, length, funnel_layer, extra, useFeedbackLoop: true });
 
     if (!save) return res.json({ text: result.text, usage: result.usage, saved: false });
 

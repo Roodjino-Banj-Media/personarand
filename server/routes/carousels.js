@@ -83,6 +83,7 @@ router.post('/generate', async (req, res, next) => {
       `Template style: ${template_style || 'text-heavy'}. Match tone and density to this style.`,
     ].join(' ');
 
+    // Carousels are long-form creative — reference strong past posts for voice.
     const result = await generate({
       type: 'carousel',
       platform: 'LinkedIn',
@@ -91,6 +92,7 @@ router.post('/generate', async (req, res, next) => {
       length: 'medium',
       funnel_layer,
       extra,
+      useFeedbackLoop: true,
     });
 
     const slides = parseCarouselText(result.text);

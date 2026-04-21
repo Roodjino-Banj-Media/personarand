@@ -42,12 +42,14 @@ ${p.body || ''}
 
     const extra = `FORMAT: markdown. Use # for the newsletter title, ## for sections, standard paragraphs for body. No preamble — return ONLY the markdown content.\nTEMPLATE GUIDE (${template_type}): ${templateGuide[template_type] || templateGuide.deep_dive}`;
 
+    // Newsletter drafts are full-voice long-form — inject top performers.
     const result = await generate({
       type: 'article',
       platform: 'newsletter',
       topic, tone, length: 'long',
       funnel_layer: pieces[0]?.calendar_funnel_layer,
       extra,
+      useFeedbackLoop: true,
     });
     res.json({ markdown: result.text, usage: result.usage, source_count: pieces.length });
   } catch (err) { next(err); }

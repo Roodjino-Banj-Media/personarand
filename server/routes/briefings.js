@@ -56,6 +56,7 @@ router.post('/generate', async (req, res, next) => {
 
 Generate 3-5 angles. Each angle must have 2-3 post_ideas. No code fences. No commentary. Just the JSON.`;
 
+    // Briefing angles should reflect what's actually performed — inject top-rated posts.
     const result = await generate({
       type: 'article',
       platform: 'briefing',
@@ -63,6 +64,7 @@ Generate 3-5 angles. Each angle must have 2-3 post_ideas. No code fences. No com
       tone: 'sharp',
       length: 'medium',
       extra,
+      useFeedbackLoop: true,
     });
 
     const cleaned = result.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();

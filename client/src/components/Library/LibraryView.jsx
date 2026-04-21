@@ -9,15 +9,18 @@ const SORTS = [
   { value: 'oldest', label: 'Oldest first' },
   { value: 'updated', label: 'Recently updated' },
   { value: 'unposted', label: 'Drafts first' },
+  { value: 'best', label: 'Best-performing first' },
 ];
+const PERFORMANCES = ['', 'strong', 'good', 'poor'];
 
 export default function LibraryView() {
   const [rows, setRows] = useState([]);
   const [facets, setFacets] = useState({ platforms: [], content_types: [], funnel_layers: [] });
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({ platform: '', status: '', content_type: '', funnel_layer: '', q: '', sort: 'newest' });
+  const [filters, setFilters] = useState({ platform: '', status: '', content_type: '', funnel_layer: '', performance: '', q: '', sort: 'newest' });
   const [selected, setSelected] = useState(null);
   const [generateSeed, setGenerateSeed] = useState(null);
+  const [strongCount, setStrongCount] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -37,11 +40,30 @@ export default function LibraryView() {
   }
 
   useEffect(() => { loadFacets(); }, []);
-  useEffect(() => { load(); }, [filters.platform, filters.status, filters.content_type, filters.funnel_layer, filters.sort]);
+  useEffect(() => { load(); }, [filters.platform, filters.status, filters.content_type, filters.funnel_layer, filters.performance, filters.sort]);
   useEffect(() => {
     const t = setTimeout(() => load(), 250);
     return () => clearTimeout(t);
   }, [filters.q]);
+
+  // Count of "strong" posts — shown so the user knows how much tonal
+  // reference the AI is working with.
+  useEffect(() => {
+    api.library.topPerformers(10)
+      .then((r) => setStrongCount(r?.length ?? 0))
+      .catch(() => setStrongCount(null));
+  }, [rows]);
+
+  async function handleRate(row, performance) {
+    // Toggle off if clicking the current rating; otherwise set.
+    const next = row.performance === performance ? null : performance;
+    try {
+      await api.library.rate(row.id, next);
+      setRows((prev) => prev.map((r) => r.id === row.id ? { ...r, performance: next } : r));
+    } catch (err) {
+      alert(`Rating failed: ${err.message}`);
+    }
+  }
 
   function handleGenerateSimilar(row) {
     setGenerateSeed({
@@ -53,7 +75,7 @@ export default function LibraryView() {
     });
   }
 
-  const anyFilter = filters.platform || filters.status || filters.content_type || filters.funnel_layer || filters.q;
+  const anyFilter = filters.platform || filters.status || filters.content_type || filters.funnel_layer || filters.performance || filters.q;
 
   return (
     <div className="space-y-6">
@@ -61,8 +83,19 @@ export default function LibraryView() {
         <div>
           <h1 className="text-2xl font-semibold">Content Library</h1>
           <p className="text-text-secondary text-sm mt-1">
-            Every generation, saved. The corpus is the institutional memory.
+            Every generation, saved. Rate posts as <span className="text-success">strong</span> to
+            teach the AI what sounds like you — the top 5 get injected into every new generation as tonal reference.
           </p>
+          {strongCount != null && strongCount > 0 && (
+            <p className="text-[11px] text-primary mt-1">
+              🔥 {strongCount} strong post{strongCount === 1 ? '' : 's'} actively feeding the AI
+            </p>
+          )}
+          {strongCount === 0 && (
+            <p className="text-[11px] text-text-secondary mt-1">
+              No strong-rated posts yet. Rate your best work with 🔥 to start the feedback loop.
+            </p>
+          )}
         </div>
         <button
           className="btn"
@@ -108,13 +141,18 @@ export default function LibraryView() {
             {STATUSES.map((s) => <option key={s} value={s}>{s || 'All'}</option>)}
           </select>
         </Field>
+        <Field label="Performance">
+          <select className="input" value={filters.performance} onChange={(e) => setFilters((f) => ({ ...f, performance: e.target.value }))}>
+            {PERFORMANCES.map((p) => <option key={p} value={p}>{p || 'Any'}</option>)}
+          </select>
+        </Field>
         <Field label="Sort">
           <select className="input" value={filters.sort} onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value }))}>
             {SORTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
         </Field>
         {anyFilter && (
-          <button className="btn-ghost" onClick={() => setFilters({ platform: '', status: '', content_type: '', funnel_layer: '', q: '', sort: 'newest' })}>
+          <button className="btn-ghost" onClick={() => setFilters({ platform: '', status: '', content_type: '', funnel_layer: '', performance: '', q: '', sort: 'newest' })}>
             Clear
           </button>
         )}
@@ -139,6 +177,7 @@ export default function LibraryView() {
               query={filters.q}
               onOpen={() => setSelected(row)}
               onGenerateSimilar={() => handleGenerateSimilar(row)}
+              onRate={(p) => handleRate(row, p)}
             />
           ))}
         </div>
@@ -167,10 +206,10 @@ function Field({ label, children, className = '' }) {
   );
 }
 
-function LibraryRow({ row, query, onOpen, onGenerateSimilar }) {
+function LibraryRow({ row, query, onOpen, onGenerateSimilar, onRate }) {
   const excerpt = buildExcerpt(row.body || '', query, 180);
   return (
-    <div className="card-pad hover:border-[#555] transition-colors">
+    <div className={`card-pad hover:border-[#555] transition-colors ${row.performance === 'strong' ? 'border-success/40 bg-success/5' : ''}`}>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1 cursor-pointer" onClick={onOpen}>
           <div className="text-base font-semibold truncate">
@@ -195,6 +234,7 @@ function LibraryRow({ row, query, onOpen, onGenerateSimilar }) {
         </div>
         <div className="flex flex-col items-end gap-2 shrink-0">
           <span className={`pill ${statusPill(row.status)}`}>{row.status}</span>
+          <RatingButtons performance={row.performance} onRate={onRate} />
           <button
             className="btn-ghost text-xs"
             onClick={(e) => { e.stopPropagation(); onGenerateSimilar(); }}
@@ -203,6 +243,40 @@ function LibraryRow({ row, query, onOpen, onGenerateSimilar }) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * 3-button rating control. Clicking the current rating toggles it off.
+ * 👎 poor / 👌 good / 🔥 strong — strong posts feed back into the AI.
+ * Exported so ContentEditor can reuse it inside the edit modal.
+ */
+export function RatingButtons({ performance, onRate, compact = false }) {
+  const options = [
+    { value: 'poor', icon: '👎', label: 'Poor', tint: 'text-danger' },
+    { value: 'good', icon: '👌', label: 'Good', tint: 'text-text-secondary' },
+    { value: 'strong', icon: '🔥', label: 'Strong — feeds AI', tint: 'text-success' },
+  ];
+  return (
+    <div className={`flex items-center gap-1 ${compact ? '' : 'mt-0'}`} onClick={(e) => e.stopPropagation()}>
+      {options.map((o) => {
+        const active = performance === o.value;
+        return (
+          <button
+            key={o.value}
+            onClick={() => onRate(o.value)}
+            title={o.label + (active ? ' (click to clear)' : '')}
+            className={`text-sm px-1.5 py-0.5 rounded border transition-all ${
+              active
+                ? 'border-border bg-[#2a2a2a] scale-110'
+                : 'border-transparent opacity-40 hover:opacity-100 hover:bg-[#1f1f1f]'
+            }`}
+          >
+            {o.icon}
+          </button>
+        );
+      })}
     </div>
   );
 }
