@@ -297,11 +297,43 @@ function CarouselBuilder({ design, onBack, onDeleted }) {
             </div>
             <div>
               <div className="label">Headline</div>
-              <input className="input" value={current.headline} onChange={(e) => patchSlide(selected, { headline: e.target.value })} />
+              <textarea
+                className="input min-h-[64px]"
+                value={current.headline}
+                onChange={(e) => patchSlide(selected, { headline: e.target.value })}
+                placeholder={`Your headline\n(press Enter for a line break)`}
+              />
+              <div className="text-[11px] text-text-secondary mt-1">
+                Line breaks in the headline are preserved — useful for pacing and typographic hierarchy.
+              </div>
             </div>
             <div>
-              <div className="label">Body</div>
-              <textarea className="input min-h-[100px]" value={current.body} onChange={(e) => patchSlide(selected, { body: e.target.value })} />
+              <div className="label">Body — per-block size control</div>
+              <textarea
+                className="input font-mono text-xs min-h-[140px]"
+                value={current.body}
+                onChange={(e) => patchSlide(selected, { body: e.target.value })}
+                placeholder={`Plain line — default size
+
+## Larger section
+
+### Medium section
+
+Paragraph with
+multiple lines —
+line breaks preserved
+
+#### Smaller
+
+##### Even smaller
+
+---
+
+Separator above.`}
+              />
+              <div className="text-[11px] text-text-secondary mt-1 leading-relaxed">
+                Use a blank line for paragraph breaks. Start a line with <code className="text-text-primary">##</code>, <code className="text-text-primary">###</code>, etc. to resize that block (<code>##</code> = 1.5×, <code>###</code> = 1.2×, <code>####</code> = 0.85×, <code>#####</code> = 0.7×). <code>---</code> alone = divider.
+              </div>
             </div>
             <div>
               <div className="label">Visual note (internal only, not rendered)</div>
