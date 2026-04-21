@@ -198,15 +198,15 @@ function PageCounter({ slideIndex, totalSlides, color, scale }) {
 
 function Brand({ color, scale }) {
   // "Roodjino" is the hardcoded brand mark that appears on every slide's
-  // footer. Always rendered in DM Sans (loaded from Google Fonts in index.html)
-  // so the mark has a consistent typographic identity regardless of slide
-  // template or background color.
+  // footer. Syne is a geometric display face with strong weight contrast;
+  // at 700 with tight tracking it reads as a confident brand mark on any
+  // template or background color. Loaded from Google Fonts in index.html.
   return (
     <div style={{
       position: 'absolute', bottom: '40px', left: '60px',
-      fontFamily: '"DM Sans", -apple-system, BlinkMacSystemFont, sans-serif',
+      fontFamily: '"Syne", -apple-system, BlinkMacSystemFont, sans-serif',
       fontSize: px(28, scale), fontWeight: 700,
-      color, letterSpacing: '-0.02em', textTransform: 'none',
+      color, letterSpacing: '-0.035em', textTransform: 'none',
     }}>
       Roodjino
     </div>
