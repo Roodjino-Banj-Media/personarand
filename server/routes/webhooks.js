@@ -1,7 +1,37 @@
 const express = require('express');
+const { Webhook } = require('svix');
 const { openDb } = require('../db');
 
 const router = express.Router();
+
+// Resend signs outbound webhooks with Svix. Verify every request against the
+// shared secret before trusting ANY field in the body — without this, anyone
+// on the internet can forge bounce/complaint events and poison subscriber
+// status or inflate engagement metrics.
+function verifyResendSignature(req) {
+  const secret = process.env.RESEND_WEBHOOK_SECRET;
+  if (!secret) {
+    // Fail-closed in production so a misconfigured deploy can't silently
+    // accept unverified traffic. Dev keeps working without the secret.
+    if (process.env.NODE_ENV === 'production') {
+      return { ok: false, reason: 'RESEND_WEBHOOK_SECRET not set' };
+    }
+    return { ok: true, unverified: true };
+  }
+  try {
+    const wh = new Webhook(secret);
+    const payload = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body || {});
+    const headers = {
+      'svix-id': req.header('svix-id') || '',
+      'svix-timestamp': req.header('svix-timestamp') || '',
+      'svix-signature': req.header('svix-signature') || '',
+    };
+    wh.verify(payload, headers);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: err.message };
+  }
+}
 
 const PIXEL = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
 
@@ -31,8 +61,17 @@ router.get('/click/:issue_id/:subscriber_id', async (req, res) => {
   res.redirect(302, url);
 });
 
-router.post('/resend', express.json(), async (req, res, next) => {
+router.post('/resend', async (req, res, next) => {
   try {
+    const verification = verifyResendSignature(req);
+    if (!verification.ok) {
+      console.warn('[webhook:resend] rejected:', verification.reason);
+      return res.status(401).json({ error: 'Invalid signature' });
+    }
+    if (verification.unverified) {
+      console.warn('[webhook:resend] accepted UNVERIFIED (dev mode) — set RESEND_WEBHOOK_SECRET in production');
+    }
+
     const db = openDb();
     const event = req.body || {};
     const type = event.type;

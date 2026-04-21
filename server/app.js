@@ -6,7 +6,12 @@ const fs = require('fs');
 const { authMiddleware } = require('./middleware/auth');
 
 const app = express();
-app.use(express.json({ limit: '2mb' }));
+// Capture rawBody so webhook signature verification runs on the exact bytes
+// the sender signed (Svix requires the raw payload, not the re-serialized one).
+app.use(express.json({
+  limit: '2mb',
+  verify: (req, _res, buf) => { req.rawBody = buf; },
+}));
 
 // Auth middleware — applied first. Public path allowlist inside.
 app.use(authMiddleware);
