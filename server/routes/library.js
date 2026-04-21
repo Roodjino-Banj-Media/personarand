@@ -159,6 +159,12 @@ router.post('/:id', async (req, res, next) => {
       return res.status(400).json({ error: `performance must be one of: poor, good, strong (got: ${performance})` });
     }
 
+    // Captions live alongside body but are independent — allow them to be
+    // updated without touching body/title. Used by the caption generator
+    // endpoint and the in-editor caption textarea.
+    const captionEnProvided = req.body?.caption_en !== undefined;
+    const captionFrProvided = req.body?.caption_fr !== undefined;
+
     // First-time posted transition → stamp posted_at. Later status flips don't
     // re-stamp, because we're capturing "when did this first go live" not
     // "when was it last touched".
@@ -169,6 +175,7 @@ router.post('/:id', async (req, res, next) => {
       SET body = ?, body_fr = ?, title = ?, title_fr = ?, status = ?,
           performance_notes = ?, performance = ?,
           posted_version_en = ?, posted_version_fr = ?,
+          caption_en = ?, caption_fr = ?,
           posted_at = COALESCE(?::timestamptz, posted_at),
           updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
@@ -182,6 +189,8 @@ router.post('/:id', async (req, res, next) => {
       performance !== undefined ? performance : existing.performance,
       posted_version_en !== undefined ? posted_version_en : existing.posted_version_en,
       posted_version_fr !== undefined ? posted_version_fr : existing.posted_version_fr,
+      captionEnProvided ? req.body.caption_en : existing.caption_en,
+      captionFrProvided ? req.body.caption_fr : existing.caption_fr,
       firstPostedTransition ? new Date().toISOString() : null,
       req.params.id,
     ]);
@@ -339,6 +348,123 @@ Do not just compress or translate. Reshape for the new format's native behavior.
     ]);
     const row = await db.prepare('SELECT * FROM generated_content WHERE id = ?').get([info.lastInsertRowid]);
     res.json({ ...row, usage: enResult.usage, usage_fr: frResult?.usage || null });
+  } catch (e) { next(e); }
+});
+
+/**
+ * POST /api/content/:id/caption
+ *
+ * Generate the POST CAPTION for a carousel or video — the text that goes
+ * ABOVE the media when publishing on LinkedIn/Instagram/TikTok/etc.
+ *
+ * The body of a carousel/video row describes the MEDIA (slides, script).
+ * The caption is the intro text around the media. Different platforms have
+ * different norms, so we pass platform-specific guidance into the prompt.
+ *
+ * Uses Haiku — it's structured, short, and high-volume (you'll generate
+ * captions every time you post). ~5x cheaper than Opus with quality that
+ * matches for this shape.
+ *
+ * Body: { platform: 'LinkedIn'|'Instagram'|'TikTok'|'X'|'YouTube', bilingual?: boolean, tone?: string }
+ */
+router.post('/:id/caption', async (req, res, next) => {
+  try {
+    const db = openDb();
+    const { platform = 'LinkedIn', bilingual = false, tone = 'sharp' } = req.body || {};
+
+    const row = await db.prepare('SELECT * FROM generated_content WHERE id = ?').get([req.params.id]);
+    if (!row) return res.status(404).json({ error: 'Not found' });
+
+    const isVideo = (row.content_type || '').startsWith('video-') || row.content_type === 'youtube-essay';
+    const isCarousel = row.content_type === 'carousel';
+    const mediaKind = isVideo ? 'video' : isCarousel ? 'carousel' : 'post';
+
+    // Platform-specific caption norms. Baked as instruction into the prompt.
+    const CAPTION_SPECS = {
+      LinkedIn: {
+        length: '150-600 characters, 3-6 short lines. Hook line first, then context, optional CTA. No hashtags (LinkedIn buries them).',
+        voice: 'Professional, confident, opinion-led. No empty platitudes.',
+      },
+      Instagram: {
+        length: '300-800 characters. Hook line, a breath, then context across short paragraphs. End with 5-7 relevant hashtags on a new line.',
+        voice: 'Conversational but still sharp. Hashtags at the very end.',
+      },
+      TikTok: {
+        length: 'Under 150 characters. One strong hook line + optional question to prompt comments.',
+        voice: 'Punchy, casual, conversational. Emoji sparingly.',
+      },
+      X: {
+        length: 'Under 280 characters total. One sharp line, or a hook line + context. No threads (this is a single post).',
+        voice: 'Counter-intuitive or high-specificity. No generic claims.',
+      },
+      YouTube: {
+        length: '500-1200 characters. First 2 lines must hook (shown before "show more"), then expanded context, optional timestamps/CTA.',
+        voice: 'Informative with personality. Read like the start of a conversation.',
+      },
+    };
+    const spec = CAPTION_SPECS[platform] || CAPTION_SPECS.LinkedIn;
+
+    const topic = `Write a ${platform} post caption for a ${mediaKind} I already produced.
+
+${mediaKind.toUpperCase()} CONTENT (the media that will be attached — NOT the caption itself):
+---
+TITLE: ${row.title || '(untitled)'}
+${row.body || '(no body)'}
+---
+
+CAPTION REQUIREMENTS:
+- Platform: ${platform}
+- ${spec.length}
+- ${spec.voice}
+- The caption INTRODUCES or FRAMES the media above. Don't recap the media word-for-word — give someone scrolling a reason to stop and consume it.
+- Preserve the voice, frameworks, and doctrine from the system prompt.
+- If the media carries the full argument (a carousel or long video), the caption can just hook + context. If the media is tight (a short video), the caption can expand the thesis briefly.`;
+
+    const extra = `Return ONLY the caption text. No preamble, no "Here's the caption", no markdown code fences. Just the caption as it would appear on ${platform}.`;
+
+    const enResult = await generate({
+      type: 'article',
+      platform,
+      topic,
+      tone,
+      length: 'short',
+      extra,
+      model: 'haiku', // structured + short + high-volume
+      useFeedbackLoop: true,
+    });
+
+    let frResult = null;
+    if (bilingual) {
+      frResult = await generate({
+        type: 'article',
+        platform,
+        topic,
+        tone,
+        length: 'short',
+        extra,
+        model: 'haiku',
+        useFeedbackLoop: true,
+        language: 'fr',
+        priorVersion: enResult.text,
+      });
+    }
+
+    const captionEn = enResult.text.trim();
+    const captionFr = frResult?.text?.trim() || null;
+
+    await db.prepare(`
+      UPDATE generated_content
+      SET caption_en = ?, caption_fr = COALESCE(?, caption_fr), updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run([captionEn, captionFr, req.params.id]);
+
+    res.json({
+      caption_en: captionEn,
+      caption_fr: captionFr,
+      platform,
+      usage: enResult.usage,
+      usage_fr: frResult?.usage || null,
+    });
   } catch (e) { next(e); }
 });
 

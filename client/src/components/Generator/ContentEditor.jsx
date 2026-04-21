@@ -3,6 +3,17 @@ import { api } from '../../lib/api.js';
 import { RatingButtons } from '../Library/LibraryView.jsx';
 import RepurposePanel from './RepurposePanel.jsx';
 import PostedVersionPanel from './PostedVersionPanel.jsx';
+import CaptionPanel from './CaptionPanel.jsx';
+
+// Content types that ship a MEDIA payload (video/script, slide deck) and
+// therefore need a separate POST CAPTION for the text that sits above
+// the media when published.
+const NEEDS_CAPTION = new Set([
+  'carousel',
+  'video-hook-beats',
+  'video-word-for-word',
+  'youtube-essay',
+]);
 
 const STATUS_OPTIONS = ['draft', 'scheduled', 'posted', 'archived'];
 
@@ -328,6 +339,20 @@ export default function ContentEditor({ initial, platform, type, onRegenerate, r
           </button>
         </div>
       </div>
+
+      {/* Caption panel — only for content types that have a MEDIA / caption
+          split (videos and carousels). Text-only posts don't need it since
+          the body IS the post. */}
+      {id && NEEDS_CAPTION.has(type || initial.content_type) && (
+        <div className="p-4 border-t border-border">
+          <CaptionPanel
+            contentId={id}
+            initialCaptionEn={initial.caption_en}
+            initialCaptionFr={initial.caption_fr}
+            hasFrBody={Boolean(bodyFr)}
+          />
+        </div>
+      )}
 
       {/* Posted-version capture — ask the user for the final version they
           actually posted. Only renders if posted_version not yet collected.

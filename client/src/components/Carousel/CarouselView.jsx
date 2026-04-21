@@ -3,6 +3,7 @@ import { api } from '../../lib/api.js';
 import { copyToClipboard } from '../../lib/clipboard.js';
 import { TEMPLATES, SlideRenderer, EXPORT_SIZE, STYLE_PRESETS } from './templates/index.jsx';
 import { exportNodeToPng, exportNodesToPdf } from './export.js';
+import CaptionPanel from '../Generator/CaptionPanel.jsx';
 
 export default function CarouselView() {
   const [designs, setDesigns] = useState([]);
@@ -355,6 +356,20 @@ Separator above.`}
             }}
             onReset={() => patchSlide(selected, { style: undefined })}
           />
+
+          {/* Caption panel — the post caption that accompanies the carousel
+              when published. Carousels dual-write to both carousel_designs
+              and generated_content (via persistCarousel on the backend). The
+              caption lives on the generated_content row; this panel fetches
+              its existing caption via the content_id link. */}
+          {design.content_id ? (
+            <CaptionPanel contentId={design.content_id} />
+          ) : (
+            <div className="card-pad border-border text-xs text-text-secondary">
+              <strong className="text-text-primary">Caption:</strong> this carousel was created before captions were linked to the Library.
+              Re-generate it from the Calendar or Carousel Studio to enable AI caption generation.
+            </div>
+          )}
         </div>
       </div>
 
