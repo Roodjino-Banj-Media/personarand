@@ -94,6 +94,9 @@ export default function GenerateModal({ item, seed, onClose }) {
         length,
         funnel_layer: item?.funnel_layer || seed?.funnel_layer,
         topic,
+        // Pass the clean title separately so the server doesn't slice
+        // "Title\n\nBrief: ..." into the saved title field.
+        title: item?.title || seed?.topic || undefined,
         extra: regenExtra || extra || undefined,
         bilingual,
         save: true,

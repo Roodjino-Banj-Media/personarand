@@ -232,23 +232,41 @@ function numOrNull(v) {
 function HealthAlerts({ health }) {
   const platforms = Object.entries(health || {});
   if (platforms.length === 0) return null;
-  const issues = platforms.filter(([, h]) => h.status !== 'healthy');
-  if (issues.length === 0) {
+  // Unknown = we have no data to judge yet. Not an alert — just a quiet hint.
+  const unknown = platforms.filter(([, h]) => h.status === 'unknown');
+  const real = platforms.filter(([, h]) => h.status !== 'healthy' && h.status !== 'unknown');
+
+  if (real.length === 0 && unknown.length === platforms.length) {
+    // First-time state: nothing has data. Don't show any alarm.
+    return (
+      <div className="card-pad border-border text-sm">
+        <div className="text-text-primary font-medium">No metrics tracked yet.</div>
+        <div className="text-text-secondary text-xs mt-1">
+          Enter a week below for any platform to start the trendline. Platform health alerts will appear once we have something to compare against.
+        </div>
+      </div>
+    );
+  }
+
+  if (real.length === 0) {
     return (
       <div className="card-pad border-success/30 bg-success/5 text-sm">
-        <div className="text-success font-medium">All platforms healthy.</div>
-        <div className="text-text-secondary text-xs mt-1">Recent posting cadence on every tracked platform, no engagement dropoff beyond tolerance.</div>
+        <div className="text-success font-medium">All tracked platforms healthy.</div>
+        <div className="text-text-secondary text-xs mt-1">
+          Recent posting cadence on every tracked platform, no engagement dropoff beyond tolerance.
+          {unknown.length > 0 && ` ${unknown.length} platform${unknown.length === 1 ? '' : 's'} not tracked yet.`}
+        </div>
       </div>
     );
   }
   return (
     <div className="space-y-2">
-      {issues.map(([platform, h]) => {
+      {real.map(([platform, h]) => {
         const tone = h.status === 'neglected' ? 'danger' : 'warning';
         const bgCls = tone === 'danger' ? 'border-danger/40 bg-danger/5' : 'border-warning/40 bg-warning/5';
         const textCls = tone === 'danger' ? 'text-danger' : 'text-warning';
         const reason = h.days_since_last_posted === null
-          ? 'No posts logged yet on this platform.'
+          ? 'No posts logged recently on this platform.'
           : `Last posted ${h.days_since_last_posted} day${h.days_since_last_posted === 1 ? '' : 's'} ago.`;
         const trendNote = h.engagement_trend !== null && h.engagement_trend < -0.10
           ? ` Engagement ${Math.abs(h.engagement_trend * 100).toFixed(0)}% below prior week.`

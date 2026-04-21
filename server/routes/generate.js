@@ -17,6 +17,7 @@ router.post('/content', async (req, res, next) => {
       length,
       funnel_layer,
       extra,
+      title: providedTitle,
       save = true,
       bilingual = false,
     } = req.body || {};
@@ -45,7 +46,13 @@ router.post('/content', async (req, res, next) => {
       });
     }
 
-    const title = topic ? topic.slice(0, 120) : `${type} / ${platform || 'multi'}`;
+    // Clean title: prefer an explicit `title` passed from the client (the
+    // calendar item's real title), then fall back to the first line of the
+    // topic (before any "\n\nBrief:" or paragraph break), then a safe default.
+    // Before this, the whole topic string (title + brief) got sliced as the
+    // saved title, producing "The Moat Moved Brief: Compressed version of…".
+    const firstLine = (topic || '').split('\n')[0].trim();
+    const title = (providedTitle || firstLine || `${type} / ${platform || 'multi'}`).slice(0, 120);
 
     // Carousel: dual-write into both generated_content AND carousel_designs so
     // the row shows in the Library (with rating + feedback loop) AND as a

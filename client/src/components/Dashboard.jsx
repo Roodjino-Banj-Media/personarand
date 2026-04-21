@@ -318,6 +318,8 @@ function HealthPill({ status }) {
     healthy: 'border-success/40 text-success bg-success/5',
     declining: 'border-warning/40 text-warning bg-warning/5',
     neglected: 'border-danger/40 text-danger bg-danger/5',
+    unknown: 'border-border text-text-secondary',
   };
-  return <span className={`pill ${map[status] || map.neglected}`}>{status}</span>;
+  const label = status === 'unknown' ? 'not tracked' : status;
+  return <span className={`pill ${map[status] || map.unknown}`}>{label}</span>;
 }

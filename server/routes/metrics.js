@@ -120,11 +120,26 @@ router.get('/health', async (req, res, next) => {
         engagement_trend = (latest.engagement_total - prior.engagement_total) / prior.engagement_total;
       }
 
+      // Distinguish "we have no data yet" from "user actually neglected this
+      // platform". Before this, every platform went red with "neglected" on a
+      // fresh install — pure alarm fatigue. The only real neglect signals are:
+      //   (a) user posted here before, but hasn't in 14+ days, OR
+      //   (b) engagement is tanking week-over-week
+      // If we have neither history nor metrics, report 'unknown' so the UI can
+      // show a neutral "not tracked yet" state instead of a red panel.
+      const hasHistory = posted !== undefined || recent.length > 0;
       let status;
-      if (days === null || days > 14) status = 'neglected';
-      else if (days > 7) status = 'declining';
-      else if (engagement_trend !== null && engagement_trend < -0.10) status = 'declining';
-      else status = 'healthy';
+      if (!hasHistory) {
+        status = 'unknown';
+      } else if (days !== null && days > 14) {
+        status = 'neglected';
+      } else if (days !== null && days > 7) {
+        status = 'declining';
+      } else if (engagement_trend !== null && engagement_trend < -0.10) {
+        status = 'declining';
+      } else {
+        status = 'healthy';
+      }
 
       result[platform] = {
         status,

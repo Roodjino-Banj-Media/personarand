@@ -87,7 +87,12 @@ function PlanMonthTab({ onItemsAdded, onClose }) {
           setError(`Week ${c.start_week} parse issue: ${r.parse_error}. Stopping. ${allItems.length} items generated so far.`);
           break;
         }
-        allItems.push(...(r.items || []));
+        // Each chunked call asks the AI for "week 1-1" (because each chunk is 7 days).
+        // So every item comes back with week:1, losing which CALENDAR week it belongs to.
+        // Stamp the chunk's start_week onto each item here, before we save, so the
+        // calendar view actually shows Week 1 / 2 / 3 / 4 instead of bunching them all
+        // into Week 1.
+        allItems.push(...(r.items || []).map((it) => ({ ...it, week: c.start_week })));
       }
       setItems(allItems);
       setProgress(null);
