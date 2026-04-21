@@ -186,18 +186,26 @@ router.post('/:id', async (req, res, next) => {
       req.params.id,
     ]);
 
-    // Auto-sync: when content transitions to 'posted' AND it's linked to a
-    // calendar item, promote the calendar item's status to 'posted' too. Before
-    // this, users had to update both statuses by hand — which is why ratings
-    // and "mark as posted" felt broken: clicking posted in the editor never
-    // moved the calendar item off 'planned'.
-    if (
-      status === 'posted'
-      && existing.status !== 'posted'
-      && existing.calendar_id
-    ) {
+    // Content → Calendar status sync. Mirrors the reverse direction in
+    // calendar.js. The mapping is intentionally conservative — we only
+    // forward-advance the calendar stage, never regress it:
+    //
+    //   content 'posted' → calendar 'posted' (regardless of current stage)
+    //   content 'scheduled' → calendar 'edited' (if currently behind 'edited')
+    //
+    // 'draft' and 'archived' never trigger sync.
+    if (status && status !== existing.status && existing.calendar_id) {
       try {
-        await db.prepare(`UPDATE content_calendar SET status = 'posted' WHERE id = ?`).run([existing.calendar_id]);
+        if (status === 'posted') {
+          await db.prepare(`UPDATE content_calendar SET status = 'posted' WHERE id = ?`).run([existing.calendar_id]);
+        } else if (status === 'scheduled') {
+          // Advance calendar to 'edited' only if it's still in an earlier stage.
+          await db.prepare(`
+            UPDATE content_calendar
+            SET status = 'edited'
+            WHERE id = ? AND status IN ('planned', 'scripted', 'shot')
+          `).run([existing.calendar_id]);
+        }
       } catch (err) {
         // Non-fatal — content still updated, calendar sync best-effort only.
         console.warn('[library] calendar status sync failed:', err.message);

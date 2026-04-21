@@ -64,9 +64,15 @@ export default function CalendarView() {
 
   async function handleStatusChange(id, status) {
     try {
-      const updated = await api.calendar.setStatus(id, status);
-      setItems((prev) => prev.map((it) => (it.id === id ? updated : it)));
-      if (activeItem && activeItem.id === id) setActiveItem(updated);
+      await api.calendar.setStatus(id, status);
+      // Reload the whole list so content_count/posted_count reflect any
+      // server-side sync (e.g., calendar → 'posted' cascaded linked
+      // generated_content rows to 'posted', bumping posted_count on this card).
+      await load();
+      if (activeItem && activeItem.id === id) {
+        const fresh = await api.calendar.get(id);
+        setActiveItem(fresh);
+      }
     } catch (err) {
       alert(`Failed to update status: ${err.message}`);
     }

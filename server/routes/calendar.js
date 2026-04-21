@@ -69,6 +69,7 @@ router.patch('/:id', async (req, res, next) => {
     const b = req.body || {};
     const existing = await db.prepare(`SELECT * FROM content_calendar WHERE id = ?`).get([req.params.id]);
     if (!existing) return res.status(404).json({ error: 'Not found' });
+    const newStatus = b.status ?? existing.status;
     await db.prepare(`
       UPDATE content_calendar SET
         week = ?, day = ?, title = ?, description = ?, content_type = ?, platforms = ?::jsonb, funnel_layer = ?, status = ?
@@ -81,9 +82,12 @@ router.patch('/:id', async (req, res, next) => {
       b.content_type ?? existing.content_type,
       b.platforms !== undefined ? (typeof b.platforms === 'string' ? b.platforms : JSON.stringify(b.platforms)) : JSON.stringify(existing.platforms),
       b.funnel_layer ?? existing.funnel_layer,
-      b.status ?? existing.status,
+      newStatus,
       req.params.id,
     ]);
+    if (newStatus !== existing.status) {
+      await syncCalendarStatusToContent(db, req.params.id, newStatus);
+    }
     const row = await db.prepare(`SELECT * FROM content_calendar WHERE id = ?`).get([req.params.id]);
     res.json(hydrate(row));
   } catch (e) { next(e); }
@@ -104,12 +108,51 @@ router.post('/:id/status', async (req, res, next) => {
     const allowed = ['planned', 'scripted', 'shot', 'edited', 'posted'];
     if (!allowed.includes(status)) return res.status(400).json({ error: `status must be one of ${allowed.join(', ')}` });
     const db = openDb();
-    const result = await db.prepare('UPDATE content_calendar SET status = ? WHERE id = ?').run([status, req.params.id]);
-    if (result.changes === 0) return res.status(404).json({ error: 'Not found' });
+    const existing = await db.prepare('SELECT status FROM content_calendar WHERE id = ?').get([req.params.id]);
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+    await db.prepare('UPDATE content_calendar SET status = ? WHERE id = ?').run([status, req.params.id]);
+    if (status !== existing.status) {
+      await syncCalendarStatusToContent(db, req.params.id, status);
+    }
     const updated = await db.prepare('SELECT * FROM content_calendar WHERE id = ?').get([req.params.id]);
     res.json(hydrate(updated));
   } catch (e) { next(e); }
 });
+
+/**
+ * Calendar → Content status sync.
+ * Keeps linked generated_content rows in step when a calendar item's
+ * production stage advances. The status vocabularies differ, so we only
+ * sync the transitions where the mapping is obvious:
+ *
+ *   calendar 'posted' → content 'posted' (for rows in draft or scheduled)
+ *   calendar 'edited' → content 'scheduled' (for rows still in draft)
+ *
+ * Other transitions (planned / scripted / shot) leave content alone —
+ * we don't regress content status, and those stages don't imply publish-
+ * readiness. Archived content is never touched by a calendar change.
+ */
+async function syncCalendarStatusToContent(db, calendarId, calendarStatus) {
+  try {
+    if (calendarStatus === 'posted') {
+      await db.prepare(`
+        UPDATE generated_content
+        SET status = 'posted', updated_at = CURRENT_TIMESTAMP,
+            posted_at = COALESCE(posted_at, CURRENT_TIMESTAMP)
+        WHERE calendar_id = ? AND status IN ('draft', 'scheduled')
+      `).run([calendarId]);
+    } else if (calendarStatus === 'edited') {
+      await db.prepare(`
+        UPDATE generated_content
+        SET status = 'scheduled', updated_at = CURRENT_TIMESTAMP
+        WHERE calendar_id = ? AND status = 'draft'
+      `).run([calendarId]);
+    }
+  } catch (err) {
+    // Non-fatal: the calendar update itself succeeded; sync is best-effort.
+    console.warn('[calendar] content sync failed:', err.message);
+  }
+}
 
 function hydrate(row) {
   if (!row) return row;
