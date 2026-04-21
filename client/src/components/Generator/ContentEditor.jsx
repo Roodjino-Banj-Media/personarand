@@ -17,7 +17,7 @@ const PLATFORM_HINT = {
 
 const AUTOSAVE_INTERVAL_MS = 30_000;
 
-export default function ContentEditor({ initial, platform, type, onRegenerate, regenerating }) {
+export default function ContentEditor({ initial, platform, type, onRegenerate, regenerating, onManualSave }) {
   const [body, setBody] = useState(initial.body || '');
   const [bodyFr, setBodyFr] = useState(initial.body_fr || '');
   const [title, setTitle] = useState(initial.title || '');
@@ -161,7 +161,25 @@ export default function ContentEditor({ initial, platform, type, onRegenerate, r
   }, []);
 
   async function handleSave() {
-    await persist({ auto: false });
+    // Two cases:
+    // 1. Dirty → persist, then close (firing onManualSave). If persist fails
+    //    the error is surfaced; we do NOT close.
+    // 2. Clean → there's nothing to save (content was already written on
+    //    generation). Treat the click as "I'm done, close the window".
+    const snap = savedSnapshot.current;
+    const isDirty = body !== snap.body
+      || bodyFr !== snap.body_fr
+      || title !== snap.title
+      || titleFr !== snap.title_fr
+      || status !== snap.status;
+
+    if (!isDirty) {
+      if (onManualSave) onManualSave();
+      return;
+    }
+
+    const ok = await persist({ auto: false });
+    if (ok && onManualSave) onManualSave();
   }
 
   async function handleCopy() {
@@ -305,8 +323,8 @@ export default function ContentEditor({ initial, platform, type, onRegenerate, r
           <button className="btn" onClick={handleCopy}>
             {copied ? 'Copied' : `Copy ${lang.toUpperCase()}`}
           </button>
-          <button className="btn-primary" onClick={handleSave} disabled={saving || !dirty}>
-            {saving ? 'Saving…' : 'Save'}
+          <button className="btn-primary" onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving…' : onManualSave ? (dirty ? 'Save & close' : 'Close') : (dirty ? 'Save' : 'Saved')}
           </button>
         </div>
       </div>

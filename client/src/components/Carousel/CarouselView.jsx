@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { copyToClipboard } from '../../lib/clipboard.js';
-import { TEMPLATES, SlideRenderer, EXPORT_SIZE } from './templates/index.jsx';
+import { TEMPLATES, SlideRenderer, EXPORT_SIZE, STYLE_PRESETS } from './templates/index.jsx';
 import { exportNodeToPng, exportNodesToPdf } from './export.js';
 
 export default function CarouselView() {
@@ -308,6 +308,21 @@ function CarouselBuilder({ design, onBack, onDeleted }) {
               <input className="input" value={current.visual} onChange={(e) => patchSlide(selected, { visual: e.target.value })} />
             </div>
           </div>
+
+          <SlideStylePanel
+            slide={current}
+            onPatch={(stylePatch) => patchSlide(selected, {
+              style: { ...(current.style || {}), ...stylePatch },
+            })}
+            onApplyToAll={(preset) => {
+              // Apply this preset to every slide — keeps the deck visually consistent.
+              setSlides((prev) => prev.map((s) => ({
+                ...s,
+                style: { ...(s.style || {}), bg: preset.bg, textColor: preset.textColor, bodyColor: preset.bodyColor, accentColor: preset.accentColor },
+              })));
+            }}
+            onReset={() => patchSlide(selected, { style: undefined })}
+          />
         </div>
       </div>
 
@@ -352,6 +367,197 @@ function OffscreenRenderer({ slides, templateKey, registerRef }) {
           <SlideRenderer templateKey={templateKey} slide={s} slideIndex={i} totalSlides={slides.length} />
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Per-slide styling controls. Edits `slide.style` — each field is optional;
+ * if omitted the template defaults are used.
+ *
+ * Structure:
+ *   style.bg            string color OR { type: 'gradient', from, to, angle }
+ *   style.textColor     headline color
+ *   style.bodyColor     body / supporting text color
+ *   style.accentColor   accent (page counter, arrow, numbers)
+ *   style.textScale     multiplier on all font-sizes (0.7 - 1.4)
+ */
+function SlideStylePanel({ slide, onPatch, onApplyToAll, onReset }) {
+  const style = slide?.style || {};
+  const bg = style.bg;
+  const isGradient = typeof bg === 'object' && bg?.type === 'gradient';
+  const [bgMode, setBgMode] = useState(isGradient ? 'gradient' : 'solid');
+
+  function setSolid(color) {
+    onPatch({ bg: color });
+  }
+  function setGradient(patch) {
+    const next = {
+      type: 'gradient',
+      from: (isGradient ? bg.from : null) || '#0b1a3a',
+      to: (isGradient ? bg.to : null) || '#1f4a7a',
+      angle: (isGradient ? bg.angle : null) ?? 135,
+      ...patch,
+    };
+    onPatch({ bg: next });
+  }
+
+  const currentSolid = typeof bg === 'string' ? bg : '#0a0a0a';
+  const gradFrom = isGradient ? bg.from : '#0b1a3a';
+  const gradTo = isGradient ? bg.to : '#1f4a7a';
+  const gradAngle = isGradient ? (bg.angle ?? 135) : 135;
+
+  return (
+    <div className="card-pad space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="text-[11px] uppercase tracking-widest text-text-secondary">Slide style</div>
+        <button className="btn-ghost text-[11px]" onClick={onReset} title="Remove all style overrides; use template defaults">
+          Reset to template default
+        </button>
+      </div>
+
+      {/* One-click presets */}
+      <div>
+        <div className="label">Presets (click to apply to this slide)</div>
+        <div className="grid grid-cols-4 md:grid-cols-8 gap-2">
+          {STYLE_PRESETS.map((p) => {
+            const bgCss = typeof p.bg === 'string'
+              ? p.bg
+              : `linear-gradient(${p.bg.angle}deg, ${p.bg.from}, ${p.bg.to})`;
+            return (
+              <button
+                key={p.key}
+                className="flex flex-col items-center gap-1"
+                onClick={() => onPatch({ bg: p.bg, textColor: p.textColor, bodyColor: p.bodyColor, accentColor: p.accentColor })}
+                title={p.label}
+              >
+                <div
+                  className="w-full aspect-square rounded border border-border hover:border-primary transition-colors"
+                  style={{ background: bgCss }}
+                />
+                <div className="text-[10px] text-text-secondary truncate w-full text-center">{p.label}</div>
+              </button>
+            );
+          })}
+        </div>
+        <div className="text-[11px] text-text-secondary mt-2">
+          Tip: once a preset looks right,{' '}
+          <button
+            className="underline hover:text-primary"
+            onClick={() => {
+              const preset = STYLE_PRESETS.find((p) => {
+                const bgMatch = typeof p.bg === 'string' ? p.bg === bg : (isGradient && p.bg.from === bg.from && p.bg.to === bg.to);
+                return bgMatch;
+              });
+              if (preset) onApplyToAll(preset);
+            }}
+          >
+            apply to all slides
+          </button>
+          {' '}for a consistent deck.
+        </div>
+      </div>
+
+      {/* Background */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <div className="label !mb-0">Background</div>
+          <div className="flex rounded-md border border-border overflow-hidden ml-auto">
+            {['solid', 'gradient'].map((m) => (
+              <button
+                key={m}
+                onClick={() => {
+                  setBgMode(m);
+                  if (m === 'solid' && isGradient) setSolid('#0a0a0a');
+                  if (m === 'gradient' && !isGradient) setGradient({});
+                }}
+                className={`px-2 py-1 text-[10px] transition-colors ${bgMode === m ? 'bg-primary text-white' : 'bg-[#0f0f0f] text-text-secondary hover:bg-[#1f1f1f]'}`}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        </div>
+        {bgMode === 'solid' && (
+          <div className="flex items-center gap-2">
+            <input type="color" value={currentSolid} onChange={(e) => setSolid(e.target.value)} className="w-12 h-8 rounded border border-border bg-[#0f0f0f] cursor-pointer" />
+            <input className="input font-mono text-xs" value={currentSolid} onChange={(e) => setSolid(e.target.value)} placeholder="#0a0a0a" />
+          </div>
+        )}
+        {bgMode === 'gradient' && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <input type="color" value={gradFrom} onChange={(e) => setGradient({ from: e.target.value })} className="w-12 h-8 rounded border border-border bg-[#0f0f0f] cursor-pointer" />
+              <input className="input font-mono text-xs flex-1" value={gradFrom} onChange={(e) => setGradient({ from: e.target.value })} placeholder="from" />
+            </div>
+            <div className="flex items-center gap-2">
+              <input type="color" value={gradTo} onChange={(e) => setGradient({ to: e.target.value })} className="w-12 h-8 rounded border border-border bg-[#0f0f0f] cursor-pointer" />
+              <input className="input font-mono text-xs flex-1" value={gradTo} onChange={(e) => setGradient({ to: e.target.value })} placeholder="to" />
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-[11px] text-text-secondary w-16">Angle {gradAngle}°</span>
+              <input
+                type="range" min={0} max={360} step={5}
+                value={gradAngle}
+                onChange={(e) => setGradient({ angle: Number(e.target.value) })}
+                className="flex-1"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Text colors */}
+      <div className="grid grid-cols-3 gap-2">
+        <ColorPick label="Headline" value={style.textColor || '#ffffff'} onChange={(c) => onPatch({ textColor: c })} />
+        <ColorPick label="Body" value={style.bodyColor || '#c8c8c8'} onChange={(c) => onPatch({ bodyColor: c })} />
+        <ColorPick label="Accent" value={style.accentColor || '#0066ff'} onChange={(c) => onPatch({ accentColor: c })} />
+      </div>
+
+      {/* Text scale */}
+      <div>
+        <div className="flex items-center justify-between">
+          <div className="label !mb-0">Text size — {Math.round((style.textScale ?? 1) * 100)}%</div>
+          <button
+            className="text-[11px] text-text-secondary hover:text-primary"
+            onClick={() => onPatch({ textScale: 1 })}
+          >
+            reset
+          </button>
+        </div>
+        <input
+          type="range" min={0.7} max={1.4} step={0.05}
+          value={style.textScale ?? 1}
+          onChange={(e) => onPatch({ textScale: Number(e.target.value) })}
+          className="w-full mt-1"
+        />
+        <div className="flex justify-between text-[10px] text-text-secondary mt-0.5">
+          <span>smaller</span>
+          <span>default</span>
+          <span>larger</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ColorPick({ label, value, onChange }) {
+  return (
+    <div>
+      <div className="label">{label}</div>
+      <div className="flex items-center gap-1">
+        <input
+          type="color"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-10 h-8 rounded border border-border bg-[#0f0f0f] cursor-pointer shrink-0"
+        />
+        <input
+          className="input font-mono text-[11px] min-w-0"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      </div>
     </div>
   );
 }

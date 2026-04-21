@@ -350,6 +350,7 @@ export default function GenerateModal({ item, seed, onClose }) {
                 type={type}
                 onRegenerate={handleRegenerate}
                 regenerating={generating}
+                onManualSave={onClose}
               />
             )}
           </div>
