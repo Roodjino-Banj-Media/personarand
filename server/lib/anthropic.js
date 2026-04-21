@@ -63,7 +63,7 @@ async function getTopPerformers(limit = 5) {
   }
   try {
     const rows = await query(`
-      SELECT title, body, platform, content_type
+      SELECT title, body, body_fr, title_fr, platform, content_type
       FROM generated_content
       WHERE performance = 'strong'
       ORDER BY created_at DESC
@@ -85,12 +85,19 @@ function invalidateTopPerformersCache() { topPerformersCache = { items: [], at: 
  * Returns empty string if there are no rated posts — first-time users see
  * the exact same behavior as before, no regression.
  */
-function formatTopPerformersBlock(performers) {
+function formatTopPerformersBlock(performers, language = 'en') {
   if (!performers || performers.length === 0) return '';
+  // When generating in French, prefer the French version of the post when
+  // present (native voice reference); fall back to English if the rated post
+  // was only ever in English. This means strong-rated FR posts teach FR tone,
+  // strong-rated EN posts teach EN tone, and mixed is handled gracefully.
   const excerpts = performers.map((p, i) => {
-    const body = (p.body || '').slice(0, 600);
-    const truncated = (p.body || '').length > 600 ? '…' : '';
-    return `### Strong post ${i + 1} — ${p.platform || 'multi'} / ${p.content_type || 'post'}\n${p.title ? `TITLE: ${p.title}\n` : ''}${body}${truncated}`;
+    const preferFr = language === 'fr' && p.body_fr && p.body_fr.length > 0;
+    const body = (preferFr ? p.body_fr : p.body) || '';
+    const title = (preferFr ? p.title_fr : p.title) || '';
+    const excerpt = body.slice(0, 600);
+    const truncated = body.length > 600 ? '…' : '';
+    return `### Strong post ${i + 1} — ${p.platform || 'multi'} / ${p.content_type || 'post'}${preferFr ? ' [FR]' : ''}\n${title ? `TITLE: ${title}\n` : ''}${excerpt}${truncated}`;
   }).join('\n\n---\n\n');
   return `YOUR RECENT STRONG-PERFORMING POSTS (Roodjino rated these as "strong" — use them as tonal and structural reference; these are what your audience actually responded to):
 
@@ -183,7 +190,7 @@ function humanizeAnthropicError(err) {
   return e;
 }
 
-async function generate({ type, platform, topic, tone, length, funnel_layer, extra, model, useFeedbackLoop = false }) {
+async function generate({ type, platform, topic, tone, length, funnel_layer, extra, model, useFeedbackLoop = false, language = 'en', priorVersion = null }) {
   const normalizedType = type || 'linkedin-short';
   let userMessage = buildUserMessage({
     type: normalizedType,
@@ -200,8 +207,48 @@ async function generate({ type, platform, topic, tone, length, funnel_layer, ext
   // don't eat tokens on irrelevant context.
   if (useFeedbackLoop) {
     const performers = await getTopPerformers(5);
-    const block = formatTopPerformersBlock(performers);
+    const block = formatTopPerformersBlock(performers, language);
     if (block) userMessage = block + userMessage;
+  }
+
+  // Bilingual mode: Roodjino's audience straddles English and French. When
+  // `language === 'fr'`, we instruct Claude to write *originally* in French
+  // (not translate a hidden English version) while preserving the brand
+  // voice and frameworks from the cached system prompt. If a `priorVersion`
+  // (English draft) is passed, we use it as a STRUCTURAL reference so the
+  // French version matches the beats — without copy-translating it.
+  if (language === 'fr') {
+    const frInstruction = priorVersion
+      ? `
+
+===============================
+FRENCH VERSION REQUEST
+===============================
+
+An English draft was already produced (below as reference). Write this same piece in NATURAL, IDIOMATIC FRENCH — write as if you had drafted it originally in French, not a translation. Match the English version's structure, beats, and argument flow, but phrase everything in native French register.
+
+Rules:
+- Do NOT translate sentence-by-sentence. Rewrite in French.
+- Preserve signature framework NAMES where they read well in French (e.g. "Architect Tax" → "La taxe de l'architecte" if that fits the rhythm; some names stay English if that's the natural choice for a Haitian audience fluent in both).
+- Keep the same voice laws, rhetorical style, and doctrine references as the system prompt specifies — the voice is the same person, just speaking French.
+- The Haitian context matters: audience is fluent in French and often in English too, so the French should read as sophisticated, not academic.
+- Match the English version's length roughly. Not longer, not shorter.
+- Return ONLY the French content. No preamble, no "Here is the French version", no commentary.
+
+ENGLISH REFERENCE (structure only — do not translate):
+---
+${priorVersion}
+---`
+      : `
+
+===============================
+FRENCH VERSION REQUEST
+===============================
+
+Write this content in NATURAL, IDIOMATIC FRENCH. Write as if you had drafted it originally in French — not a translation from English. Preserve the brand voice, doctrine, and rhetorical style from the system prompt (that voice is the same person speaking French). The audience is Haitian and fluent in French; aim for sophisticated register, not academic.
+
+Return ONLY the French content. No preamble.`;
+    userMessage = userMessage + frInstruction;
   }
 
   const maxTokens = MAX_TOKENS_BY_TYPE[normalizedType] || 1500;

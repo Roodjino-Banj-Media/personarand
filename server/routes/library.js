@@ -1,6 +1,6 @@
 const express = require('express');
 const { openDb } = require('../db');
-const { invalidateTopPerformersCache } = require('../lib/anthropic');
+const { generate, invalidateTopPerformersCache } = require('../lib/anthropic');
 
 const router = express.Router();
 
@@ -139,7 +139,7 @@ router.get('/:id', async (req, res, next) => {
 router.post('/:id', async (req, res, next) => {
   try {
     const db = openDb();
-    const { body, title, status, performance_notes, performance } = req.body || {};
+    const { body, body_fr, title, title_fr, status, performance_notes, performance } = req.body || {};
     const existing = await db.prepare('SELECT * FROM generated_content WHERE id = ?').get([req.params.id]);
     if (!existing) return res.status(404).json({ error: 'Not found' });
 
@@ -151,11 +151,13 @@ router.post('/:id', async (req, res, next) => {
 
     await db.prepare(`
       UPDATE generated_content
-      SET body = ?, title = ?, status = ?, performance_notes = ?, performance = ?, updated_at = CURRENT_TIMESTAMP
+      SET body = ?, body_fr = ?, title = ?, title_fr = ?, status = ?, performance_notes = ?, performance = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run([
       body ?? existing.body,
+      body_fr !== undefined ? body_fr : existing.body_fr,
       title ?? existing.title,
+      title_fr !== undefined ? title_fr : existing.title_fr,
       status ?? existing.status,
       performance_notes ?? existing.performance_notes,
       performance !== undefined ? performance : existing.performance,
@@ -169,6 +171,45 @@ router.post('/:id', async (req, res, next) => {
       invalidateTopPerformersCache();
     }
     res.json(row);
+  } catch (e) { next(e); }
+});
+
+/**
+ * POST /api/content/:id/translate-fr
+ * Generate the French version of an existing post. Uses the English body as
+ * a structural reference and writes a native French version. For when the
+ * user generated English-only and decides later they want French too.
+ */
+router.post('/:id/translate-fr', async (req, res, next) => {
+  try {
+    const db = openDb();
+    const existing = await db.prepare('SELECT * FROM generated_content WHERE id = ?').get([req.params.id]);
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+    if (!existing.body || existing.body.length < 20) {
+      return res.status(400).json({ error: 'Post has no English body to use as reference' });
+    }
+
+    // Use a minimal "topic" — the real content is carried via priorVersion.
+    const result = await generate({
+      type: existing.content_type || 'article',
+      platform: existing.platform || 'multi',
+      topic: existing.title || 'French version',
+      tone: 'balanced',
+      length: 'medium',
+      language: 'fr',
+      priorVersion: existing.body,
+      useFeedbackLoop: true,
+    });
+
+    const titleFr = (result.text.split('\n').find((l) => l.trim().length > 0) || '').slice(0, 120);
+
+    await db.prepare(`
+      UPDATE generated_content
+      SET body_fr = ?, title_fr = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run([result.text, titleFr, req.params.id]);
+
+    res.json({ body_fr: result.text, title_fr: titleFr, usage: result.usage });
   } catch (e) { next(e); }
 });
 

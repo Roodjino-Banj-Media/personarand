@@ -215,10 +215,18 @@ function LibraryRow({ row, query, onOpen, onGenerateSimilar, onRate }) {
           <div className="text-base font-semibold truncate">
             {query ? highlight(row.title || 'Untitled', query) : (row.title || 'Untitled')}
           </div>
-          <div className="text-[11px] text-text-secondary mt-1 flex flex-wrap gap-2">
+          <div className="text-[11px] text-text-secondary mt-1 flex flex-wrap gap-2 items-center">
             <span>{row.platform || 'multi'}</span>
             <span>·</span>
             <span>{row.content_type}</span>
+            {row.body_fr && (
+              <>
+                <span>·</span>
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-primary/40 bg-primary/5 text-primary text-[10px] font-medium">
+                  EN · FR
+                </span>
+              </>
+            )}
             {row.calendar_title && (<><span>·</span><span>Week {row.calendar_week}: {row.calendar_title}</span></>)}
             <span>·</span>
             <span>{new Date(row.created_at).toLocaleString()}</span>

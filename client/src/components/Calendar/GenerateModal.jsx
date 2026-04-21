@@ -46,6 +46,9 @@ export default function GenerateModal({ item, seed, onClose }) {
   const [tone, setTone] = useState('balanced');
   const [length, setLength] = useState('medium');
   const [extra, setExtra] = useState(seed?.extra || '');
+  // Bilingual is defaulted ON because Roodjino's workflow is bilingual by
+  // default. Uncheck per-generation for English-only posts.
+  const [bilingual, setBilingual] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [copying, setCopying] = useState(false);
   const [copyMsg, setCopyMsg] = useState(null);
@@ -74,6 +77,7 @@ export default function GenerateModal({ item, seed, onClose }) {
         funnel_layer: item?.funnel_layer || seed?.funnel_layer,
         topic,
         extra: regenExtra || extra || undefined,
+        bilingual,
         save: true,
       };
       const row = await api.generate.content(payload);
@@ -184,6 +188,22 @@ export default function GenerateModal({ item, seed, onClose }) {
                 disabled={generating}
               />
             </Field>
+            <label className={`flex items-start gap-2 p-3 rounded-md border cursor-pointer transition-colors ${bilingual ? 'border-primary/40 bg-primary/5' : 'border-border hover:border-[#555]'}`}>
+              <input
+                type="checkbox"
+                checked={bilingual}
+                onChange={(e) => setBilingual(e.target.checked)}
+                disabled={generating}
+                className="mt-0.5"
+              />
+              <div className="min-w-0">
+                <div className="text-sm">🇬🇧 🇫🇷 Generate in both English and French</div>
+                <div className="text-[11px] text-text-secondary mt-0.5 leading-snug">
+                  French version written natively (not translated), then you pick which to use.
+                  Adds ~20-30s to generation.
+                </div>
+              </div>
+            </label>
             <div className="space-y-2">
               <button
                 className="btn w-full justify-center"
@@ -198,7 +218,9 @@ export default function GenerateModal({ item, seed, onClose }) {
                 onClick={() => handleGenerate()}
                 disabled={generating}
               >
-                {generating ? 'Generating…' : result ? 'Regenerate' : 'Generate in app (Opus 4.7)'}
+                {generating
+                  ? (bilingual ? 'Generating EN + FR…' : 'Generating…')
+                  : result ? 'Regenerate' : `Generate in app (Opus 4.7)${bilingual ? ' — EN + FR' : ''}`}
               </button>
             </div>
             {copyMsg && (
@@ -237,7 +259,7 @@ export default function GenerateModal({ item, seed, onClose }) {
               <div className="card-pad text-text-secondary text-sm h-full flex items-center justify-center min-h-[300px]">
                 <div className="flex items-center gap-3">
                   <span className="h-2 w-2 bg-primary rounded-full animate-pulse" />
-                  Calling Claude Opus 4.7…
+                  {bilingual ? 'Calling Claude Opus 4.7 — English first, then French…' : 'Calling Claude Opus 4.7…'}
                 </div>
               </div>
             )}

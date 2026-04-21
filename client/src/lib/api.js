@@ -195,6 +195,7 @@ export const api = {
     get: (id) => request(`/api/content/${id}`),
     update: (id, payload) => request(`/api/content/${id}`, { method: 'POST', body: payload }),
     rate: (id, performance) => request(`/api/content/${id}`, { method: 'POST', body: { performance } }),
+    translateFr: (id) => request(`/api/content/${id}/translate-fr`, { method: 'POST' }),
     facets: () => request('/api/content/facets'),
     topPerformers: (limit = 5) => request(`/api/content/top-performers?limit=${limit}`),
     export: () => downloadFile('/api/content/export', 'library-export.md'),

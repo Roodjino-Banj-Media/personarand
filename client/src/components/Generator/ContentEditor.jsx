@@ -17,42 +17,54 @@ const AUTOSAVE_INTERVAL_MS = 30_000;
 
 export default function ContentEditor({ initial, platform, type, onRegenerate, regenerating }) {
   const [body, setBody] = useState(initial.body || '');
+  const [bodyFr, setBodyFr] = useState(initial.body_fr || '');
   const [title, setTitle] = useState(initial.title || '');
+  const [titleFr, setTitleFr] = useState(initial.title_fr || '');
   const [status, setStatus] = useState(initial.status || 'draft');
   const [performance, setPerformance] = useState(initial.performance || null);
+  // Which language the textarea is editing. Defaults to EN; if only FR exists
+  // (unusual but possible), start on FR.
+  const [lang, setLang] = useState(() => (!initial.body && initial.body_fr ? 'fr' : 'en'));
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState(null);
   const [autoSaveMsg, setAutoSaveMsg] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [translatingFr, setTranslatingFr] = useState(false);
   const [id, setId] = useState(initial.id);
 
   // Last-persisted snapshot — used to detect dirty state for auto-save.
   const savedSnapshot = useRef({
     body: initial.body || '',
+    body_fr: initial.body_fr || '',
     title: initial.title || '',
+    title_fr: initial.title_fr || '',
     status: initial.status || 'draft',
   });
-  // Latest values captured for the interval closure to read without re-creating the interval.
-  const latest = useRef({ body, title, status, id, saving });
-  latest.current = { body, title, status, id, saving };
+  // Latest values for the interval closure.
+  const latest = useRef({ body, bodyFr, title, titleFr, status, id, saving });
+  latest.current = { body, bodyFr, title, titleFr, status, id, saving };
 
   useEffect(() => {
     setBody(initial.body || '');
+    setBodyFr(initial.body_fr || '');
     setTitle(initial.title || '');
+    setTitleFr(initial.title_fr || '');
     setStatus(initial.status || 'draft');
     setPerformance(initial.performance || null);
+    setLang(!initial.body && initial.body_fr ? 'fr' : 'en');
     setId(initial.id);
     setSavedAt(null);
     setAutoSaveMsg(null);
     savedSnapshot.current = {
       body: initial.body || '',
+      body_fr: initial.body_fr || '',
       title: initial.title || '',
+      title_fr: initial.title_fr || '',
       status: initial.status || 'draft',
     };
   }, [initial.id]);
 
   async function handleRate(next) {
-    // Toggle off if clicking the current rating.
     const value = performance === next ? null : next;
     const prev = performance;
     setPerformance(value);
@@ -64,22 +76,44 @@ export default function ContentEditor({ initial, platform, type, onRegenerate, r
     }
   }
 
-  const words = body.trim() ? body.trim().split(/\s+/).length : 0;
-  const chars = body.length;
+  // Current-language helpers — the textarea always edits whichever language is active.
+  const currentBody = lang === 'fr' ? bodyFr : body;
+  const currentTitle = lang === 'fr' ? titleFr : title;
+  const setCurrentBody = lang === 'fr' ? setBodyFr : setBody;
+  const setCurrentTitle = lang === 'fr' ? setTitleFr : setTitle;
+  const hasFr = Boolean(bodyFr && bodyFr.length > 0);
+
+  const words = currentBody.trim() ? currentBody.trim().split(/\s+/).length : 0;
+  const chars = currentBody.length;
 
   async function persist({ auto = false } = {}) {
-    const { body: b, title: t, status: s, id: i, saving: currentlySaving } = latest.current;
+    const { body: b, bodyFr: bf, title: t, titleFr: tf, status: s, id: i, saving: currentlySaving } = latest.current;
     if (!i) return false;
     if (currentlySaving) return false;
     const snap = savedSnapshot.current;
-    const dirty = b !== snap.body || t !== snap.title || s !== snap.status;
+    const dirty = b !== snap.body || bf !== snap.body_fr || t !== snap.title || tf !== snap.title_fr || s !== snap.status;
     if (!dirty) return false;
 
     setSaving(true);
     try {
-      const updated = await api.library.update(i, { body: b, title: t, status: s });
-      savedSnapshot.current = { body: updated.body, title: updated.title, status: updated.status };
-      setBody(updated.body);
+      const updated = await api.library.update(i, {
+        body: b,
+        body_fr: bf || null,
+        title: t,
+        title_fr: tf || null,
+        status: s,
+      });
+      savedSnapshot.current = {
+        body: updated.body || '',
+        body_fr: updated.body_fr || '',
+        title: updated.title || '',
+        title_fr: updated.title_fr || '',
+        status: updated.status,
+      };
+      setBody(updated.body || '');
+      setBodyFr(updated.body_fr || '');
+      setTitle(updated.title || '');
+      setTitleFr(updated.title_fr || '');
       setSavedAt(new Date());
       if (auto) {
         setAutoSaveMsg(`Auto-saved ${new Date().toLocaleTimeString()}`);
@@ -95,25 +129,22 @@ export default function ContentEditor({ initial, platform, type, onRegenerate, r
     }
   }
 
-  // 30s auto-save, only if dirty and we have an id. Stable interval across edits.
   useEffect(() => {
     const timer = setInterval(() => { persist({ auto: true }); }, AUTOSAVE_INTERVAL_MS);
     return () => clearInterval(timer);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Flush on tab close / unmount to avoid losing the last few keystrokes.
   useEffect(() => {
     function handleBeforeUnload() {
-      const { body: b, title: t, status: s, id: i } = latest.current;
+      const { body: b, bodyFr: bf, title: t, titleFr: tf, status: s, id: i } = latest.current;
       const snap = savedSnapshot.current;
-      const dirty = i && (b !== snap.body || t !== snap.title || s !== snap.status);
+      const dirty = i && (b !== snap.body || bf !== snap.body_fr || t !== snap.title || tf !== snap.title_fr || s !== snap.status);
       if (!dirty) return;
-      // Best-effort: keepalive fetch so the browser still sends it during unload.
       try {
         fetch(`/api/content/${i}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ body: b, title: t, status: s }),
+          body: JSON.stringify({ body: b, body_fr: bf || null, title: t, title_fr: tf || null, status: s }),
           keepalive: true,
         });
       } catch { /* ignore */ }
@@ -128,7 +159,7 @@ export default function ContentEditor({ initial, platform, type, onRegenerate, r
 
   async function handleCopy() {
     try {
-      await navigator.clipboard.writeText(body);
+      await navigator.clipboard.writeText(currentBody);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -136,21 +167,83 @@ export default function ContentEditor({ initial, platform, type, onRegenerate, r
     }
   }
 
+  // Generate the French version on-demand for a row that only has English.
+  async function handleTranslateFr() {
+    if (!id || !body) return;
+    setTranslatingFr(true);
+    try {
+      const result = await api.library.translateFr(id);
+      setBodyFr(result.body_fr || '');
+      setTitleFr(result.title_fr || '');
+      savedSnapshot.current = {
+        ...savedSnapshot.current,
+        body_fr: result.body_fr || '',
+        title_fr: result.title_fr || '',
+      };
+      setLang('fr');
+    } catch (err) {
+      alert(`French generation failed: ${err.message}`);
+    } finally {
+      setTranslatingFr(false);
+    }
+  }
+
   const dirty = (() => {
     const snap = savedSnapshot.current;
-    return body !== snap.body || title !== snap.title || status !== snap.status;
+    return body !== snap.body
+      || bodyFr !== snap.body_fr
+      || title !== snap.title
+      || titleFr !== snap.title_fr
+      || status !== snap.status;
   })();
 
   return (
     <div className="card flex flex-col h-full">
+      {/* Language tabs — only shown if French exists, or if we're generating it on-demand */}
+      {(hasFr || translatingFr) && (
+        <div className="px-4 pt-3 flex items-center gap-1 border-b border-border">
+          <button
+            onClick={() => setLang('en')}
+            className={`px-3 py-1.5 text-xs font-medium rounded-t-md transition-colors ${
+              lang === 'en'
+                ? 'bg-[#1f1f1f] text-text-primary border-b-2 border-primary'
+                : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            🇬🇧 English
+          </button>
+          <button
+            onClick={() => setLang('fr')}
+            disabled={!hasFr && !translatingFr}
+            className={`px-3 py-1.5 text-xs font-medium rounded-t-md transition-colors ${
+              lang === 'fr'
+                ? 'bg-[#1f1f1f] text-text-primary border-b-2 border-primary'
+                : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            🇫🇷 Français {translatingFr && <span className="ml-1 opacity-60">…</span>}
+          </button>
+        </div>
+      )}
+
       <div className="px-4 py-3 border-b border-border flex flex-wrap items-center justify-between gap-2">
         <input
           className="bg-transparent outline-none text-sm font-medium flex-1 min-w-0"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Untitled"
+          value={currentTitle}
+          onChange={(e) => setCurrentTitle(e.target.value)}
+          placeholder={lang === 'fr' ? 'Sans titre' : 'Untitled'}
         />
         <div className="flex items-center gap-2">
+          {id && !hasFr && !translatingFr && (
+            <button
+              className="btn-ghost text-xs"
+              onClick={handleTranslateFr}
+              disabled={!body || translatingFr}
+              title="Generate a French version of this post (uses Opus 4.7)"
+            >
+              🇫🇷 + French
+            </button>
+          )}
           {id && (
             <RatingButtons performance={performance} onRate={handleRate} />
           )}
@@ -166,15 +259,17 @@ export default function ContentEditor({ initial, platform, type, onRegenerate, r
 
       <textarea
         className="flex-1 bg-[#0f0f0f] p-4 text-sm text-text-primary font-mono leading-relaxed outline-none min-h-[300px] resize-y"
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
+        value={currentBody}
+        onChange={(e) => setCurrentBody(e.target.value)}
         spellCheck
+        placeholder={lang === 'fr' && !bodyFr && translatingFr ? 'Génération en français…' : ''}
       />
 
       <div className="px-4 py-3 border-t border-border flex flex-wrap items-center justify-between gap-3 text-[11px] text-text-secondary">
         <div className="flex flex-wrap gap-x-4 gap-y-1">
           <span>{words} words</span>
           <span>{chars} chars</span>
+          {lang === 'fr' && <span className="text-primary">· French</span>}
           {PLATFORM_HINT[platform] && <span>· {PLATFORM_HINT[platform]}</span>}
           {autoSaveMsg && <span className="text-success">· {autoSaveMsg}</span>}
           {!autoSaveMsg && savedAt && <span className="text-success">· Saved {savedAt.toLocaleTimeString()}</span>}
@@ -185,7 +280,7 @@ export default function ContentEditor({ initial, platform, type, onRegenerate, r
             {regenerating ? 'Regenerating…' : 'Regenerate'}
           </button>
           <button className="btn" onClick={handleCopy}>
-            {copied ? 'Copied' : 'Copy'}
+            {copied ? 'Copied' : `Copy ${lang.toUpperCase()}`}
           </button>
           <button className="btn-primary" onClick={handleSave} disabled={saving || !dirty}>
             {saving ? 'Saving…' : 'Save'}
