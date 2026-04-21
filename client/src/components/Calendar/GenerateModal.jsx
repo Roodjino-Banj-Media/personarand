@@ -1,22 +1,30 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { copyToClipboard } from '../../lib/clipboard.js';
 import ContentEditor from '../Generator/ContentEditor.jsx';
 
+// Each type declares which platforms it's valid for. `'*'` means any
+// platform accepts this type. This is the source of truth for the
+// platform↔type matrix — the UI filters against this so you can never
+// select "X + linkedin-short" or "YouTube + x-thread" again.
 const TYPE_OPTIONS = [
-  { value: 'linkedin-short', label: 'LinkedIn post (short)' },
-  { value: 'linkedin-long', label: 'LinkedIn post (long)' },
-  { value: 'x-thread', label: 'X thread' },
-  { value: 'x-standalone', label: 'X standalone' },
-  { value: 'instagram-caption', label: 'Instagram caption' },
-  { value: 'video-hook-beats', label: 'Video script — hook + beats' },
-  { value: 'video-word-for-word', label: 'Video script — word for word' },
-  { value: 'youtube-essay', label: 'YouTube essay' },
-  { value: 'article', label: 'Article / long-form' },
-  { value: 'carousel', label: 'Carousel' },
+  { value: 'linkedin-short',      label: 'LinkedIn post (short)',        platforms: ['LinkedIn'] },
+  { value: 'linkedin-long',       label: 'LinkedIn post (long)',         platforms: ['LinkedIn'] },
+  { value: 'x-thread',            label: 'X thread',                     platforms: ['X'] },
+  { value: 'x-standalone',        label: 'X standalone',                 platforms: ['X'] },
+  { value: 'instagram-caption',   label: 'Instagram caption',            platforms: ['Instagram', 'Instagram Reels', 'TikTok'] },
+  { value: 'video-hook-beats',    label: 'Video script — hook + beats',  platforms: ['Instagram Reels', 'TikTok', 'YouTube'] },
+  { value: 'video-word-for-word', label: 'Video script — word for word', platforms: ['Instagram Reels', 'TikTok', 'YouTube'] },
+  { value: 'youtube-essay',       label: 'YouTube essay',                platforms: ['YouTube'] },
+  { value: 'article',             label: 'Article / long-form',          platforms: ['*'] },
+  { value: 'carousel',            label: 'Carousel',                     platforms: ['LinkedIn', 'Instagram'] },
 ];
 
 const PLATFORMS = ['LinkedIn', 'X', 'Instagram', 'Instagram Reels', 'TikTok', 'YouTube'];
+
+function typesForPlatform(platform) {
+  return TYPE_OPTIONS.filter((t) => t.platforms.includes('*') || t.platforms.includes(platform));
+}
 const TONES = ['sharp', 'balanced', 'warm'];
 const LENGTHS = ['short', 'medium', 'long'];
 
@@ -43,6 +51,16 @@ export default function GenerateModal({ item, seed, onClose }) {
 
   const [type, setType] = useState(initialType);
   const [platform, setPlatform] = useState(initialPlatform);
+
+  // Compatible types for the current platform. If the current `type` isn't
+  // compatible, auto-switch to the first valid option so we never submit a
+  // nonsense combo like "X + linkedin-short".
+  const compatibleTypes = useMemo(() => typesForPlatform(platform), [platform]);
+  useEffect(() => {
+    if (!compatibleTypes.some((t) => t.value === type)) {
+      setType(compatibleTypes[0]?.value || 'article');
+    }
+  }, [platform, compatibleTypes, type]);
   const [tone, setTone] = useState('balanced');
   const [length, setLength] = useState('medium');
   const [extra, setExtra] = useState(seed?.extra || '');
@@ -139,7 +157,7 @@ export default function GenerateModal({ item, seed, onClose }) {
           <div className="space-y-4">
             <Field label="Format">
               <select className="input" value={type} onChange={(e) => setType(e.target.value)} disabled={generating}>
-                {TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {compatibleTypes.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </Field>
             <Field label="Platform">

@@ -164,6 +164,24 @@ router.post('/:id', async (req, res, next) => {
       req.params.id,
     ]);
 
+    // Auto-sync: when content transitions to 'posted' AND it's linked to a
+    // calendar item, promote the calendar item's status to 'posted' too. Before
+    // this, users had to update both statuses by hand — which is why ratings
+    // and "mark as posted" felt broken: clicking posted in the editor never
+    // moved the calendar item off 'planned'.
+    if (
+      status === 'posted'
+      && existing.status !== 'posted'
+      && existing.calendar_id
+    ) {
+      try {
+        await db.prepare(`UPDATE content_calendar SET status = 'posted' WHERE id = ?`).run([existing.calendar_id]);
+      } catch (err) {
+        // Non-fatal — content still updated, calendar sync best-effort only.
+        console.warn('[library] calendar status sync failed:', err.message);
+      }
+    }
+
     const row = await db.prepare('SELECT * FROM generated_content WHERE id = ?').get([req.params.id]);
     // If the rating changed, drop the top-performers cache so the next
     // generation call sees the fresh list without waiting 60s.

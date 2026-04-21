@@ -5,6 +5,49 @@ const { parseCarouselText } = require('../lib/carouselParser');
 
 const router = express.Router();
 
+/**
+ * Persist a carousel into BOTH tables so it appears in the Library (where
+ * you rate it, search it, export it) AND in the Carousel Studio (where you
+ * edit individual slides and export the design). Returns { carousel, content }.
+ *
+ * Exported so /api/generate/content can reuse it when type === 'carousel'.
+ * Without this dual-write, carousels were invisible to the Library and the
+ * feedback loop couldn't learn from a rated carousel.
+ */
+async function persistCarousel({ title, slides, rawText, templateStyle, platform, funnelLayer, calendarId, bodyFr }) {
+  const db = openDb();
+  // 1. generated_content row (Library-visible, rate-able, feedback-loop aware)
+  const contentInfo = await db.prepare(`
+    INSERT INTO generated_content (calendar_id, content_type, platform, title, body, body_fr, metadata, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, 'draft')
+  `).run([
+    calendarId || null,
+    'carousel',
+    platform || 'LinkedIn',
+    (title || 'Untitled carousel').slice(0, 120),
+    rawText,
+    bodyFr || null,
+    JSON.stringify({ template_style: templateStyle || 'text-heavy', source: 'carousel-studio', slide_count: slides.length }),
+  ]);
+  const contentId = contentInfo.lastInsertRowid;
+
+  // 2. carousel_designs row (Studio-visible, slide-editable) — cross-linked
+  const carouselInfo = await db.prepare(`
+    INSERT INTO carousel_designs (title, slides, template_style, status, content_id)
+    VALUES (?, ?::jsonb, ?, ?, ?)
+  `).run([
+    (title || 'Untitled carousel').slice(0, 120),
+    JSON.stringify(slides),
+    templateStyle || 'text-heavy',
+    'draft',
+    contentId,
+  ]);
+
+  const carousel = await db.prepare('SELECT * FROM carousel_designs WHERE id = ?').get([carouselInfo.lastInsertRowid]);
+  const content = await db.prepare('SELECT * FROM generated_content WHERE id = ?').get([contentId]);
+  return { carousel: hydrate(carousel), content };
+}
+
 router.get('/', async (req, res, next) => {
   try {
     const db = openDb();
@@ -75,7 +118,7 @@ router.delete('/:id', async (req, res, next) => {
 
 router.post('/generate', async (req, res, next) => {
   try {
-    const { topic, slide_count, template_style, tone, funnel_layer, save = true } = req.body || {};
+    const { topic, slide_count, template_style, tone, funnel_layer, calendar_id, save = true } = req.body || {};
     if (!topic) return res.status(400).json({ error: 'topic is required' });
 
     const extra = [
@@ -99,13 +142,18 @@ router.post('/generate', async (req, res, next) => {
 
     if (!save) return res.json({ slides, raw: result.text, usage: result.usage, saved: false });
 
-    const db = openDb();
-    const info = await db.prepare(`
-      INSERT INTO carousel_designs (title, slides, template_style, status)
-      VALUES (?, ?::jsonb, ?, ?)
-    `).run([topic.slice(0, 120), JSON.stringify(slides), template_style || 'text-heavy', 'draft']);
-    const row = await db.prepare('SELECT * FROM carousel_designs WHERE id = ?').get([info.lastInsertRowid]);
-    res.json({ ...hydrate(row), raw: result.text, usage: result.usage, saved: true });
+    // Dual-write: generated_content (Library) + carousel_designs (Studio)
+    const { carousel, content } = await persistCarousel({
+      title: topic,
+      slides,
+      rawText: result.text,
+      templateStyle: template_style,
+      platform: 'LinkedIn',
+      funnelLayer: funnel_layer,
+      calendarId: calendar_id,
+    });
+
+    res.json({ ...carousel, content_id: content.id, raw: result.text, usage: result.usage, saved: true });
   } catch (err) { next(err); }
 });
 
@@ -128,3 +176,6 @@ function normalizeArray(v) {
 }
 
 module.exports = router;
+// Expose the dual-write helper so /api/generate/content can reuse it when
+// type === 'carousel' — see routes/generate.js.
+module.exports.persistCarousel = persistCarousel;

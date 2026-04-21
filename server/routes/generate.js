@@ -1,6 +1,8 @@
 const express = require('express');
 const { openDb } = require('../db');
 const { generate } = require('../lib/anthropic');
+const { parseCarouselText } = require('../lib/carouselParser');
+const { persistCarousel } = require('./carousels');
 
 const router = express.Router();
 
@@ -43,8 +45,29 @@ router.post('/content', async (req, res, next) => {
       });
     }
 
-    const db = openDb();
     const title = topic ? topic.slice(0, 120) : `${type} / ${platform || 'multi'}`;
+
+    // Carousel: dual-write into both generated_content AND carousel_designs so
+    // the row shows in the Library (with rating + feedback loop) AND as a
+    // designable deck in the Carousel Studio. Before this, generating a
+    // carousel from the calendar went into generated_content only and never
+    // became an editable deck.
+    if (type === 'carousel') {
+      const slides = parseCarouselText(enResult.text);
+      const { carousel, content } = await persistCarousel({
+        title,
+        slides,
+        rawText: enResult.text,
+        templateStyle: 'text-heavy',
+        platform: platform || 'LinkedIn',
+        funnelLayer: funnel_layer,
+        calendarId: calendar_id || null,
+        bodyFr: frResult?.text || null,
+      });
+      return res.json({ ...content, carousel_id: carousel.id, usage: enResult.usage, usage_fr: frResult?.usage || null, saved: true });
+    }
+
+    const db = openDb();
     // For the French title, take the first line of the French body if present.
     // Claude usually leads with a hook line that works as a title.
     const titleFr = frResult
