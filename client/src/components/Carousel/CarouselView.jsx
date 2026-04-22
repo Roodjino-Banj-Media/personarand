@@ -357,6 +357,20 @@ Separator above.`}
             onReset={() => patchSlide(selected, { style: undefined })}
           />
 
+          <SlideImagePanel
+            slide={current}
+            onPatch={(imagePatch) => patchSlide(selected, {
+              image: imagePatch === null ? null : { ...(current.image || {}), ...imagePatch },
+            })}
+          />
+
+          {selected === 0 && (
+            <CoverVariantPanel
+              slide={current}
+              onPatch={(cover_variant) => patchSlide(selected, { cover_variant })}
+            />
+          )}
+
           {/* Caption panel — the post caption that accompanies the carousel
               when published. Carousels dual-write to both carousel_designs
               and generated_content (via persistCarousel on the backend). The
@@ -604,6 +618,215 @@ function ColorPick({ label, value, onChange }) {
           value={value}
           onChange={(e) => onChange(e.target.value)}
         />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * SlideImagePanel — add/manage the optional image on the current slide.
+ *
+ * Image modes:
+ *   background   — fills the whole slide, darkened overlay for text legibility
+ *   split-left   — image on left half, text on right (works on any slide)
+ *   split-right  — image on right half, text on left
+ *
+ * Supports upload via /api/uploads (Supabase Storage, returns a public URL)
+ * OR paste-in of any image URL. Also exposes overlay opacity + crop position.
+ */
+function SlideImagePanel({ slide, onPatch }) {
+  const image = slide?.image;
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState(null);
+  const fileInputRef = useRef(null);
+
+  async function handleFile(file) {
+    if (!file) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const uploaded = await api.uploads.upload(file, { tags: ['carousel'] });
+      // uploads.upload returns the visual_inspiration row, .filepath is the public URL.
+      const url = uploaded.filepath;
+      if (!url) throw new Error('Upload succeeded but no public URL returned');
+      onPatch({ url, mode: image?.mode || 'background' });
+    } catch (err) {
+      setError(err.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="card-pad space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="text-[11px] uppercase tracking-widest text-text-secondary">Slide image</div>
+        {image?.url && (
+          <button
+            className="btn-ghost text-[11px] text-danger"
+            onClick={() => onPatch(null)}
+            title="Remove image from this slide"
+          >
+            Remove
+          </button>
+        )}
+      </div>
+
+      {image?.url ? (
+        <div className="space-y-3">
+          <div
+            className="rounded-md border border-border overflow-hidden"
+            style={{ height: 140, backgroundImage: `url(${image.url})`, backgroundSize: 'cover', backgroundPosition: image.position || 'center' }}
+            title={image.url}
+          />
+          <div className="flex items-center gap-2">
+            <button
+              className="btn-ghost text-xs"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+            >
+              {uploading ? 'Uploading…' : 'Replace image'}
+            </button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              className="hidden"
+              onChange={(e) => handleFile(e.target.files?.[0])}
+            />
+          </div>
+
+          <div>
+            <div className="label">Image mode</div>
+            <div className="flex rounded-md border border-border overflow-hidden">
+              {[
+                { key: 'background', label: 'Background' },
+                { key: 'split-left', label: 'Left half' },
+                { key: 'split-right', label: 'Right half' },
+              ].map((m) => (
+                <button
+                  key={m.key}
+                  onClick={() => onPatch({ mode: m.key })}
+                  className={`flex-1 px-2 py-1.5 text-[11px] transition-colors ${
+                    (image.mode || 'background') === m.key ? 'bg-primary text-white' : 'bg-[#0f0f0f] text-text-secondary hover:bg-[#1f1f1f]'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="label">Image position (crop)</div>
+            <select
+              className="input"
+              value={image.position || 'center'}
+              onChange={(e) => onPatch({ position: e.target.value })}
+            >
+              <option value="center">Center</option>
+              <option value="top">Top</option>
+              <option value="bottom">Bottom</option>
+              <option value="left">Left</option>
+              <option value="right">Right</option>
+            </select>
+          </div>
+
+          {(image.mode || 'background') === 'background' && (
+            <div>
+              <div className="flex items-center justify-between">
+                <div className="label !mb-0">Text-legibility overlay — {Math.round((image.overlay_opacity ?? 0.4) * 100)}%</div>
+                <button
+                  className="text-[11px] text-text-secondary hover:text-primary"
+                  onClick={() => onPatch({ overlay_opacity: 0.4 })}
+                >
+                  reset
+                </button>
+              </div>
+              <input
+                type="range" min={0} max={0.9} step={0.05}
+                value={image.overlay_opacity ?? 0.4}
+                onChange={(e) => onPatch({ overlay_opacity: Number(e.target.value) })}
+                className="w-full mt-1"
+              />
+              <div className="text-[10px] text-text-secondary mt-0.5 leading-relaxed">
+                Darkens the image so headline + body stay readable. 0% = raw image, 90% = nearly black.
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <div className="text-xs text-text-secondary leading-relaxed">
+            Add an image to this slide — fills as a background (with overlay for legibility) or anchors one half of a split layout.
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              className="btn text-xs"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+            >
+              {uploading ? 'Uploading…' : '⬆ Upload image'}
+            </button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              className="hidden"
+              onChange={(e) => handleFile(e.target.files?.[0])}
+            />
+            <span className="text-[11px] text-text-secondary">or paste a URL:</span>
+          </div>
+          <input
+            className="input font-mono text-xs"
+            placeholder="https://…"
+            onBlur={(e) => {
+              const url = e.target.value.trim();
+              if (url) onPatch({ url, mode: 'background' });
+            }}
+          />
+        </div>
+      )}
+
+      {error && <div className="text-danger text-xs">{error}</div>}
+    </div>
+  );
+}
+
+/**
+ * CoverVariantPanel — only shown on slide 0. Picks the text layout for
+ * the cover, orthogonal to the image mode. Combinable:
+ *   hero + background-image = full-bleed image with bottom-anchored title
+ *   minimal + no image = centered title with maximum whitespace
+ *   standard + split-right = split layout with title on left, image on right
+ */
+function CoverVariantPanel({ slide, onPatch }) {
+  const variants = [
+    { key: 'standard', label: 'Standard', hint: 'Template default — title centered with body below' },
+    { key: 'hero',     label: 'Hero',     hint: 'Title anchored at the bottom, dramatic — pairs with background image' },
+    { key: 'minimal',  label: 'Minimal',  hint: 'Centered title only, maximum whitespace, no body' },
+  ];
+  const current = slide?.cover_variant || 'standard';
+  return (
+    <div className="card-pad space-y-2">
+      <div className="text-[11px] uppercase tracking-widest text-text-secondary">Cover layout</div>
+      <div className="grid grid-cols-3 gap-1.5">
+        {variants.map((v) => (
+          <button
+            key={v.key}
+            onClick={() => onPatch(v.key)}
+            className={`text-xs py-2 rounded-md transition-colors border ${
+              current === v.key
+                ? 'bg-primary text-white border-primary'
+                : 'bg-[#0f0f0f] text-text-secondary hover:bg-[#1f1f1f] border-border'
+            }`}
+          >
+            {v.label}
+          </button>
+        ))}
+      </div>
+      <div className="text-[11px] text-text-secondary leading-relaxed">
+        {variants.find((v) => v.key === current)?.hint}
       </div>
     </div>
   );

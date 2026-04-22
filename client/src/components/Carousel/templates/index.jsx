@@ -58,6 +58,43 @@ function px(base, scale) {
 }
 
 /**
+ * Resolve a slide's image config with sensible defaults.
+ *
+ * Shape:
+ *   slide.image.url             — image URL (Supabase Storage public URL or any URL)
+ *   slide.image.mode            — 'background' (full-bleed behind text) | 'split-left' | 'split-right'
+ *   slide.image.overlay_opacity — 0..0.9 darken for legibility over background images (default 0.4)
+ *   slide.image.position        — background-position: 'center' | 'top' | 'bottom' | 'left' | 'right'
+ *
+ * Returns null when no image is configured.
+ */
+function resolveImage(slide) {
+  const img = slide?.image;
+  if (!img || !img.url) return null;
+  return {
+    url: img.url,
+    mode: img.mode || 'background',
+    overlayOpacity: typeof img.overlay_opacity === 'number' ? Math.max(0, Math.min(0.9, img.overlay_opacity)) : 0.4,
+    position: img.position || 'center',
+  };
+}
+
+/**
+ * Resolve the cover variant for slide 0.
+ * Only meaningful when slideIndex === 0; elsewhere returns 'standard'.
+ *
+ * Options:
+ *   'standard'  — template's default cover render
+ *   'hero'      — title anchored near bottom, dramatic, works great with image background
+ *   'minimal'   — centered title, extra whitespace, kicker suppressed
+ *   'split'     — headline left, image/content right (paired with split-right image)
+ */
+function resolveCoverVariant(slide, slideIndex) {
+  if (slideIndex !== 0) return 'standard';
+  return slide?.cover_variant || 'standard';
+}
+
+/**
  * Rich-body parser. Lets the user control per-line sizing with simple
  * markdown-style syntax inside a plain textarea:
  *
@@ -163,7 +200,24 @@ function Headline({ text, style: headStyle }) {
   );
 }
 
+/**
+ * Frame is the slide canvas. Handles background color/gradient, optional
+ * image background (with overlay for legibility), and sets up the text layer
+ * as a relative stacking context above the image.
+ *
+ * When image.mode is 'background', the image fills the frame and a dark
+ * overlay (at image.overlayOpacity) sits between image and content so text
+ * stays readable over any photo.
+ *
+ * When image.mode is 'split-left' or 'split-right', children receive a
+ * `splitOffset` hint via a class applied in the parent's flex container —
+ * but we handle split layouts inside each template (not Frame) because the
+ * content layout differs per template. Frame itself just doesn't render
+ * an image for split modes; the template handles that directly.
+ */
 function Frame({ children, bg, slide }) {
+  const image = resolveImage(slide);
+  const hasBackgroundImage = image && image.mode === 'background';
   return (
     <div
       style={{
@@ -179,7 +233,87 @@ function Frame({ children, bg, slide }) {
         overflow: 'hidden',
       }}
     >
+      {hasBackgroundImage && (
+        <>
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute', inset: 0,
+              backgroundImage: `url(${image.url})`,
+              backgroundSize: 'cover',
+              backgroundPosition: image.position,
+              backgroundRepeat: 'no-repeat',
+              zIndex: 0,
+            }}
+          />
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute', inset: 0,
+              background: `rgba(0, 0, 0, ${image.overlayOpacity})`,
+              zIndex: 0,
+            }}
+          />
+        </>
+      )}
+      {/* Content layer sits above the image + overlay */}
+      <div
+        style={{
+          position: 'relative',
+          zIndex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          flex: 1,
+          width: '100%',
+          height: '100%',
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Split-layout helper — renders a slide as two columns with an image on
+ * one side and the text content on the other. Used by templates when
+ * slide.image.mode is 'split-left' or 'split-right'.
+ */
+function SplitImage({ image, children, side, bg }) {
+  const imageCol = (
+    <div
+      style={{
+        width: '50%',
+        height: '100%',
+        backgroundImage: `url(${image.url})`,
+        backgroundSize: 'cover',
+        backgroundPosition: image.position,
+        backgroundRepeat: 'no-repeat',
+      }}
+    />
+  );
+  const contentCol = (
+    <div style={{
+      width: '50%',
+      height: '100%',
+      background: bg,
+      display: 'flex',
+      flexDirection: 'column',
+      position: 'relative',
+    }}>
       {children}
+    </div>
+  );
+  return (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'row',
+      flex: 1,
+      width: '100%',
+      height: '100%',
+    }}>
+      {side === 'left' ? imageCol : contentCol}
+      {side === 'left' ? contentCol : imageCol}
     </div>
   );
 }
@@ -219,6 +353,97 @@ function TextHeavy({ slide, slideIndex, totalSlides }) {
   const s = resolveStyle(slide, { bg: '#0a0a0a', textColor: '#ffffff', bodyColor: '#c8c8c8', accentColor: DEFAULT_ACCENT });
   const isCover = slideIndex === 0;
   const isCTA = slideIndex === totalSlides - 1;
+  const image = resolveImage(slide);
+  const coverVariant = resolveCoverVariant(slide, slideIndex);
+  const isSplit = image && (image.mode === 'split-left' || image.mode === 'split-right');
+
+  // Split-image mode: image takes half the slide, text takes the other half.
+  // Works on any slide, not just the cover.
+  if (isSplit) {
+    const side = image.mode === 'split-left' ? 'left' : 'right';
+    return (
+      <Frame bg={s.bg} slide={{ ...slide, image: null }}>
+        <SplitImage image={image} side={side} bg={s.bg}>
+          <div style={{
+            padding: '80px 60px',
+            display: 'flex', flexDirection: 'column', justifyContent: 'center',
+            flex: 1, gap: '32px',
+          }}>
+            <Headline
+              text={headline || (isCover ? '(Cover headline)' : '(headline)')}
+              style={{
+                fontSize: px(isCover ? 72 : 56, s.textScale),
+                fontWeight: 700, lineHeight: 1.08, letterSpacing: '-0.02em',
+                color: s.textColor,
+              }}
+            />
+            {body && (
+              <RichBody
+                body={body}
+                baseSize={28}
+                scale={s.textScale}
+                color={s.bodyColor}
+                accentColor={s.accentColor}
+              />
+            )}
+          </div>
+          <Brand color={`${s.textColor}cc`} scale={s.textScale} />
+          {!isCover && <PageCounter slideIndex={slideIndex} totalSlides={totalSlides} color={`${s.textColor}80`} scale={s.textScale} />}
+        </SplitImage>
+      </Frame>
+    );
+  }
+
+  // Cover variants — only apply when this is the cover slide.
+  // hero: title anchored at the bottom, dramatic — best with image background
+  // minimal: centered title only, maximum whitespace
+  if (isCover && coverVariant === 'hero') {
+    return (
+      <Frame bg={s.bg} slide={slide}>
+        <div style={{
+          padding: '80px', display: 'flex', flexDirection: 'column',
+          justifyContent: 'flex-end', flex: 1, gap: '24px',
+        }}>
+          <Headline
+            text={headline || '(Cover headline)'}
+            style={{
+              fontSize: px(110, s.textScale),
+              fontWeight: 800, lineHeight: 1.0, letterSpacing: '-0.03em',
+              color: s.textColor,
+              textShadow: image ? '0 2px 30px rgba(0,0,0,0.35)' : 'none',
+              maxWidth: '880px',
+            }}
+          />
+          {body && (
+            <RichBody body={body} baseSize={30} scale={s.textScale} color={s.bodyColor} accentColor={s.accentColor} maxWidth="740px" />
+          )}
+        </div>
+        <Brand color={`${s.textColor}cc`} scale={s.textScale} />
+      </Frame>
+    );
+  }
+  if (isCover && coverVariant === 'minimal') {
+    return (
+      <Frame bg={s.bg} slide={slide}>
+        <div style={{
+          padding: '160px 120px', display: 'flex', flexDirection: 'column',
+          justifyContent: 'center', alignItems: 'center', flex: 1, textAlign: 'center',
+        }}>
+          <Headline
+            text={headline || '(Cover headline)'}
+            style={{
+              fontSize: px(96, s.textScale),
+              fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.02em',
+              color: s.textColor, maxWidth: '820px',
+            }}
+          />
+        </div>
+        <Brand color={`${s.textColor}cc`} scale={s.textScale} />
+      </Frame>
+    );
+  }
+
+  // Standard layout (existing behavior).
   return (
     <Frame bg={s.bg} slide={slide}>
       <div style={{
@@ -232,6 +457,7 @@ function TextHeavy({ slide, slideIndex, totalSlides }) {
             fontSize: px(isCover ? 100 : 72, s.textScale),
             fontWeight: 700, lineHeight: 1.05, letterSpacing: '-0.02em',
             color: s.textColor,
+            textShadow: image ? '0 2px 24px rgba(0,0,0,0.35)' : 'none',
           }}
         />
         {!isCover && body && (
