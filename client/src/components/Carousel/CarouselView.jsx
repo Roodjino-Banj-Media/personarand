@@ -642,6 +642,15 @@ function SlideImagePanel({ slide, onPatch }) {
 
   async function handleFile(file) {
     if (!file) return;
+    // Vercel's serverless functions cap request body at ~4.5MB. Stop large
+    // uploads here with a clear message instead of letting them fail at the
+    // gateway with an opaque 413.
+    const MAX_BYTES = 4_000_000; // 4MB safe limit, well under the 4.5MB gateway cap
+    if (file.size > MAX_BYTES) {
+      const mb = (file.size / 1024 / 1024).toFixed(1);
+      setError(`Image is ${mb}MB — too large. Compress to under 4MB and try again (quality 80% JPEG usually does it).`);
+      return;
+    }
     setUploading(true);
     setError(null);
     try {
