@@ -352,6 +352,114 @@ Do not just compress or translate. Reshape for the new format's native behavior.
 });
 
 /**
+ * POST /api/content/:id/refine
+ *
+ * Iterative "this isn't quite right — change X" refinement. The AI sees the
+ * current draft + the user's specific feedback and revises in-place. Does
+ * NOT start from scratch — the prompt is explicit about "iterate, don't
+ * rewrite" so 80%-there drafts don't get thrown away.
+ *
+ * Body: { feedback: string (≥3 chars), language?: 'en'|'fr' }
+ * Returns: { body, language, revision_number, usage }
+ *
+ * Feedback history is persisted into the row's metadata JSON under a
+ * `refinements` array so we keep the trail of "what got changed, when, why".
+ */
+router.post('/:id/refine', async (req, res, next) => {
+  try {
+    const db = openDb();
+    const { feedback, language = 'en' } = req.body || {};
+    if (!feedback || feedback.trim().length < 3) {
+      return res.status(400).json({ error: 'feedback must be at least 3 characters' });
+    }
+    if (!['en', 'fr'].includes(language)) {
+      return res.status(400).json({ error: `language must be 'en' or 'fr'` });
+    }
+
+    const row = await db.prepare('SELECT * FROM generated_content WHERE id = ?').get([req.params.id]);
+    if (!row) return res.status(404).json({ error: 'Not found' });
+
+    const currentBody = language === 'fr' ? row.body_fr : row.body;
+    if (!currentBody || currentBody.length < 20) {
+      return res.status(400).json({ error: `no ${language.toUpperCase()} body to refine on this row` });
+    }
+
+    const topic = `Revise a ${row.content_type || 'post'} for ${row.platform || 'LinkedIn'}.
+
+YOU PREVIOUSLY WROTE THIS:
+---
+${currentBody}
+---
+
+THE USER HAS GIVEN THIS SPECIFIC FEEDBACK:
+---
+${feedback}
+---
+
+Your task: revise the content to address the feedback. Keep what works. Only change what the feedback calls out or implies. Do NOT start from scratch — iterate on the existing draft. Preserve the length and structure unless the feedback explicitly asks you to change them. If the feedback is vague, interpret it in the direction of sharper voice, more specificity, less generic.`;
+
+    const extra = `Return ONLY the revised content. No preamble, no "Here's the revised version", no markdown code fences, no commentary. Just the new draft as it should appear.`;
+
+    const result = await generate({
+      type: row.content_type || 'article',
+      platform: row.platform || 'LinkedIn',
+      topic,
+      tone: 'sharp',
+      length: 'medium',
+      extra,
+      useFeedbackLoop: true,
+      language,
+      // For FR refinement, feed the current FR draft as priorVersion so the
+      // revised output matches the existing structure.
+      priorVersion: language === 'fr' ? currentBody : null,
+    });
+
+    const revised = result.text.trim();
+
+    // Persist refinement history in metadata. Non-destructive — we keep the
+    // full trail so future prompts can reference "what edits did Roodjino
+    // ask for" if useful.
+    let metadata = {};
+    try {
+      metadata = typeof row.metadata === 'string' ? JSON.parse(row.metadata || '{}') : (row.metadata || {});
+    } catch { metadata = {}; }
+    if (!Array.isArray(metadata.refinements)) metadata.refinements = [];
+    const previousBody = currentBody;
+    metadata.refinements.push({
+      language,
+      feedback,
+      previous_body: previousBody.length > 2000 ? previousBody.slice(0, 2000) + '…' : previousBody,
+      revised_at: new Date().toISOString(),
+      usage: result.usage,
+    });
+    // Cap the history at last 10 refinements per row so metadata doesn't balloon.
+    metadata.refinements = metadata.refinements.slice(-10);
+
+    // Save the new body for the chosen language + updated metadata.
+    if (language === 'fr') {
+      await db.prepare(`
+        UPDATE generated_content
+        SET body_fr = ?, metadata = ?::jsonb, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run([revised, JSON.stringify(metadata), req.params.id]);
+    } else {
+      await db.prepare(`
+        UPDATE generated_content
+        SET body = ?, metadata = ?::jsonb, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run([revised, JSON.stringify(metadata), req.params.id]);
+    }
+
+    res.json({
+      body: revised,
+      language,
+      revision_number: metadata.refinements.length,
+      usage: result.usage,
+    });
+  } catch (e) { next(e); }
+});
+
+/**
  * POST /api/content/:id/caption
  *
  * Generate the POST CAPTION for a carousel or video — the text that goes

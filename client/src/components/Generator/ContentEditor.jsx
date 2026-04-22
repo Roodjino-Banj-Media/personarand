@@ -47,6 +47,12 @@ export default function ContentEditor({ initial, platform, type, onRegenerate, r
   const [copied, setCopied] = useState(false);
   const [translatingFr, setTranslatingFr] = useState(false);
   const [id, setId] = useState(initial.id);
+  // Refine-with-feedback iteration state.
+  const [showRefine, setShowRefine] = useState(false);
+  const [refineFeedback, setRefineFeedback] = useState('');
+  const [refining, setRefining] = useState(false);
+  const [refineError, setRefineError] = useState(null);
+  const [refinementCount, setRefinementCount] = useState(0);
 
   // Last-persisted snapshot — used to detect dirty state for auto-save.
   const savedSnapshot = useRef({
@@ -71,6 +77,11 @@ export default function ContentEditor({ initial, platform, type, onRegenerate, r
     setPostedVersionFr(initial.posted_version_fr || null);
     setLang(!initial.body && initial.body_fr ? 'fr' : 'en');
     setId(initial.id);
+    // Surface the existing refinement count if the row has been revised before.
+    try {
+      const meta = typeof initial.metadata === 'string' ? JSON.parse(initial.metadata) : initial.metadata;
+      setRefinementCount(Array.isArray(meta?.refinements) ? meta.refinements.length : 0);
+    } catch { setRefinementCount(0); }
     setSavedAt(null);
     setAutoSaveMsg(null);
     savedSnapshot.current = {
@@ -203,6 +214,40 @@ export default function ContentEditor({ initial, platform, type, onRegenerate, r
     }
   }
 
+  // Refine the current-language body with specific user feedback. Replaces
+  // the body in-place and syncs the savedSnapshot so dirty-state resets
+  // (refinement is an AI action that's already persisted server-side — not
+  // unsaved user edits).
+  async function handleRefine() {
+    if (!id || !refineFeedback.trim() || refineFeedback.trim().length < 3) {
+      setRefineError('Give the AI at least a few words about what to change.');
+      return;
+    }
+    setRefining(true);
+    setRefineError(null);
+    try {
+      const r = await api.library.refine(id, {
+        feedback: refineFeedback.trim(),
+        language: lang,
+      });
+      // Replace the current-language body with the revised version.
+      if (lang === 'fr') {
+        setBodyFr(r.body);
+        savedSnapshot.current = { ...savedSnapshot.current, body_fr: r.body };
+      } else {
+        setBody(r.body);
+        savedSnapshot.current = { ...savedSnapshot.current, body: r.body };
+      }
+      setRefinementCount(r.revision_number || refinementCount + 1);
+      setRefineFeedback(''); // clear for next round
+      // Keep the panel open so the user can iterate multiple times without re-clicking.
+    } catch (err) {
+      setRefineError(err.message);
+    } finally {
+      setRefining(false);
+    }
+  }
+
   // Generate the French version on-demand for a row that only has English.
   async function handleTranslateFr() {
     if (!id || !body) return;
@@ -328,6 +373,15 @@ export default function ContentEditor({ initial, platform, type, onRegenerate, r
           {!autoSaveMsg && !savedAt && id && dirty && <span>· Unsaved edits (auto-saves every 30s)</span>}
         </div>
         <div className="flex gap-2">
+          {id && (
+            <button
+              className={`btn ${showRefine ? 'border-primary text-primary' : ''}`}
+              onClick={() => setShowRefine((v) => !v)}
+              title="Give the AI specific feedback and have it revise this in place"
+            >
+              ✎ Refine{refinementCount > 0 ? ` (${refinementCount})` : ''}
+            </button>
+          )}
           <button className="btn" onClick={onRegenerate} disabled={regenerating || saving}>
             {regenerating ? 'Regenerating…' : 'Regenerate'}
           </button>
@@ -339,6 +393,50 @@ export default function ContentEditor({ initial, platform, type, onRegenerate, r
           </button>
         </div>
       </div>
+
+      {/* Refine-with-feedback panel — expands below the footer when toggled.
+          The AI sees the current draft + user feedback and revises in place,
+          keeping what works and only fixing what's called out. Iterate multiple
+          times until it sits right. */}
+      {showRefine && id && (
+        <div className="p-4 border-t border-primary/40 bg-primary/5 space-y-2">
+          <div className="flex items-start justify-between gap-2">
+            <div className="text-sm text-primary font-semibold">
+              Refine this {lang === 'fr' ? 'French' : 'English'} draft
+            </div>
+            <button
+              className="btn-ghost text-[11px]"
+              onClick={() => { setShowRefine(false); setRefineFeedback(''); setRefineError(null); }}
+            >
+              Dismiss
+            </button>
+          </div>
+          <div className="text-[11px] text-text-secondary leading-relaxed">
+            Tell the AI specifically what to change. It keeps what works and only fixes what you call out — it does not start from scratch. Iterate as many times as needed.
+          </div>
+          <textarea
+            className="input text-sm min-h-[80px]"
+            value={refineFeedback}
+            onChange={(e) => setRefineFeedback(e.target.value)}
+            placeholder="e.g. shorter · lead with the counter-intuitive claim · drop the metaphor in paragraph 2 · more specific numbers · tone is too generic, sharpen · remove the Haiti reference"
+            disabled={refining}
+          />
+          {refineError && <div className="text-danger text-xs">{refineError}</div>}
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[11px] text-text-secondary">
+              {refinementCount > 0 && <>Revised {refinementCount}× · </>}
+              Uses Opus 4.7 with your feedback loop on.
+            </div>
+            <button
+              className="btn-primary text-sm"
+              onClick={handleRefine}
+              disabled={refining || refineFeedback.trim().length < 3}
+            >
+              {refining ? 'Revising…' : 'Apply feedback & revise'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Caption panel — only for content types that have a MEDIA / caption
           split (videos and carousels). Text-only posts don't need it since
