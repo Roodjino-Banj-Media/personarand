@@ -4,6 +4,7 @@ import CalendarItem from './CalendarItem.jsx';
 import GenerateModal from './GenerateModal.jsx';
 import CalendarIntelligence from './CalendarIntelligence.jsx';
 import DeepenPanel from './DeepenPanel.jsx';
+import ReactToNowModal from './ReactToNowModal.jsx';
 
 const PLATFORMS = ['LinkedIn', 'X', 'Instagram', 'Instagram Reels', 'TikTok', 'YouTube'];
 const FUNNELS = ['Discovery', 'Authority', 'Trust', 'Conversion', 'Identity'];
@@ -18,6 +19,7 @@ export default function CalendarView() {
   const [generateFor, setGenerateFor] = useState(null);
   const [showIntelligence, setShowIntelligence] = useState(null); // null | 'plan' | 'brainstorm' | 'gaps'
   const [deepenFor, setDeepenFor] = useState(null);
+  const [showReactToNow, setShowReactToNow] = useState(false);
   const [reseeding, setReseeding] = useState(false);
 
   async function load() {
@@ -120,6 +122,13 @@ export default function CalendarView() {
               {reseeding ? '…' : `🗑 Clear all (${items.length})`}
             </button>
           )}
+          <button
+            className="btn border-amber-500/50 text-amber-400 hover:border-amber-500 hover:text-amber-300"
+            onClick={() => setShowReactToNow(true)}
+            title="React to news / trends / something happening now. Generates angles or a full post in your voice."
+          >
+            ⚡ React to now
+          </button>
           <button className="btn" onClick={() => setShowIntelligence('gaps')}>📊 Gaps</button>
           <button className="btn" onClick={() => setShowIntelligence('brainstorm')}>💡 Brainstorm</button>
           <button className="btn-primary" onClick={() => setShowIntelligence('plan')}>✨ Plan weeks with AI</button>
@@ -259,6 +268,17 @@ export default function CalendarView() {
         <DeepenPanel
           item={deepenFor}
           onClose={() => setDeepenFor(null)}
+        />
+      )}
+
+      {showReactToNow && (
+        <ReactToNowModal
+          // Default the target week to the highest week currently on the
+          // calendar — reactive items naturally stack onto the latest planned
+          // week. User can still edit in the modal.
+          defaultWeek={items.length ? Math.max(...items.map((i) => Number(i.week) || 1)) : 1}
+          onClose={() => { setShowReactToNow(false); load(); }}
+          onItemsAdded={() => load()}
         />
       )}
     </div>

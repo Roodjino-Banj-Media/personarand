@@ -250,6 +250,17 @@ function LibraryRow({ row, query, onOpen, onGenerateSimilar, onRate, onDelete })
                 </span>
               </>
             )}
+            {row.is_reactive && (
+              <>
+                <span>·</span>
+                <span
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500/40 bg-amber-500/5 text-amber-400 text-[10px] font-medium"
+                  title={row.reactive_source ? `Reactive to: ${row.reactive_source.slice(0, 160)}` : 'Reactive content'}
+                >
+                  ⚡ reactive
+                </span>
+              </>
+            )}
             {row.calendar_title && (<><span>·</span><span>Week {row.calendar_week}: {row.calendar_title}</span></>)}
             <span>·</span>
             <span>{new Date(row.created_at).toLocaleString()}</span>

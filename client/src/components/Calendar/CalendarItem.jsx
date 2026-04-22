@@ -76,13 +76,18 @@ export default function CalendarItem({ item, onClick, onStatusChange, onTitleSav
     }
   }
 
+  const isReactive = Boolean(item.is_reactive);
   return (
     <div
-      className={`card-pad cursor-pointer hover:border-[#555] transition-colors ${cardTint}`}
+      className={`card-pad cursor-pointer hover:border-[#555] transition-colors ${cardTint} ${isReactive ? 'border-l-4 border-l-amber-400' : ''}`}
       onClick={onClick}
+      title={isReactive && item.reactive_source ? `Reactive to: ${item.reactive_source.slice(0, 200)}` : undefined}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="text-[11px] uppercase tracking-widest text-text-secondary">{item.day}</div>
+        <div className="text-[11px] uppercase tracking-widest text-text-secondary flex items-center gap-1.5">
+          {isReactive && <span className="text-amber-400" title="Reactive content">⚡</span>}
+          <span>{item.day || (isReactive ? 'reactive' : '—')}</span>
+        </div>
         <span className={`pill ${statusCls}`}>{item.status}</span>
       </div>
 

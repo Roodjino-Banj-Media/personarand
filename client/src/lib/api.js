@@ -76,6 +76,7 @@ export const api = {
     refineBrief: (id, payload) => request(`/api/calendar-ai/${id}/refine-brief`, { method: 'POST', body: payload }),
     gaps: () => request('/api/calendar-ai/gaps'),
     reseed: (force = false) => request('/api/calendar-ai/reseed', { method: 'POST', body: { force } }),
+    reactiveAngles: (payload) => request('/api/calendar-ai/reactive-angles', { method: 'POST', body: payload }),
   },
   generate: {
     content: (payload) => request('/api/generate/content', { method: 'POST', body: payload }),

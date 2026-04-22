@@ -80,6 +80,87 @@ No code fences. Aim for ~${weeklyTotal * weeks} items total.`;
   } catch (err) { console.error('[calendar/plan-month]', err); next(err); }
 });
 
+/**
+ * POST /api/calendar-ai/reactive-angles
+ *
+ * Generate N angle ideas reacting to something happening RIGHT NOW — a news
+ * story, a launch, a thread, or an observation the user wants to take a
+ * position on. Distinct from /brainstorm (which is evergreen ideation):
+ *   - timing-aware ("this week", "same-day if possible")
+ *   - requires a POSITION, not neutral commentary
+ *   - filtered through brand voice + doctrine (Architect Tax, Distribution
+ *     Debt, etc.) and Haiti lens where applicable
+ *   - platform bias toward X / LinkedIn where reactive content lives
+ *
+ * Body: { source: string (required, 10+ chars), count?: number (default 4),
+ *         platforms?: string[], funnel_layers?: string[] }
+ */
+router.post('/reactive-angles', async (req, res, next) => {
+  try {
+    const {
+      source,
+      count = 4,
+      platforms = PLATFORMS,
+      funnel_layers = Object.keys(FUNNEL_TARGETS_WEEKLY),
+    } = req.body || {};
+    if (!source || source.trim().length < 10) {
+      return res.status(400).json({ error: 'source (URL / headline / observation, 10+ chars) required' });
+    }
+
+    const topic = `Generate ${count} REACTIVE post angles in response to what's happening right now.
+
+SOURCE (the thing you're reacting to — a news story, a launch, a thread, an observation):
+---
+${source.trim()}
+---
+
+This is TIMELY commentary — the post will go out within 24-72 hours of the source event. Treat it that way.
+
+Rules:
+- Every angle must TAKE A POSITION. No neutral recap. No "interesting development" hot takes. The reader should close the post knowing what the writer thinks and why.
+- Filter through the brand voice + doctrine. If the source touches infrastructure / distribution / architecture / AI / Haiti / operator-class realities, bring the relevant framework to bear (Architect Tax, Distribution Debt, Legibility Gap, Operational Aesthetics, etc.) — don't invent new frameworks when an existing one already cuts the problem.
+- Apply the Haiti lens when the source genuinely warrants it. Don't force Haiti into an angle where it adds no edge. When it fits, it fits hard.
+- Reactive content lives best on X and LinkedIn. Carousels and long-form videos are poor fits for 24-hour reactive content unless the source is a genuinely important structural moment.
+- Each angle must be directly postable — a clear takeable position, not a topic.
+- If none of the angles feel right because the source is weak, say so: return fewer angles rather than forcing ${count}.
+
+PLATFORMS ALLOWED:
+${platforms.join(', ')}
+
+FUNNEL LAYERS:
+${funnel_layers.join(', ')}`;
+
+    const extra = `Return ONLY a JSON array of up to ${count} objects (fewer if the source doesn't support ${count} strong positions):
+{
+  "title": "short working title 4-10 words — must capture the position, not the topic",
+  "position": "the specific take in one sentence — what does this post argue",
+  "why_it_works": "one sentence on why this angle cuts now (timing, positioning, framework fit)",
+  "content_type": "linkedin-long" | "linkedin-short" | "x-thread" | "x-standalone" | "instagram-caption" | "carousel" | "video-clip",
+  "platforms": [...],
+  "funnel_layer": one of the allowed layers
+}
+No code fences. No preamble.`;
+
+    const result = await generate({
+      type: 'article',
+      platform: 'calendar',
+      topic,
+      tone: 'sharp',
+      length: 'medium',
+      extra,
+      useFeedbackLoop: true,
+    });
+    const parsed = parseJsonArray(result.text);
+    res.json({
+      angles: parsed.items || [],
+      source,
+      usage: result.usage,
+      parse_error: parsed.error,
+      raw: parsed.error ? result.text : undefined,
+    });
+  } catch (err) { next(err); }
+});
+
 router.post('/brainstorm', async (req, res, next) => {
   try {
     const { seed, count = 15, platforms = PLATFORMS, funnel_layers = Object.keys(FUNNEL_TARGETS_WEEKLY) } = req.body || {};

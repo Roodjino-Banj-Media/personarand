@@ -46,8 +46,8 @@ router.post('/', async (req, res, next) => {
     const db = openDb();
     const b = req.body || {};
     const info = await db.prepare(`
-      INSERT INTO content_calendar (week, day, title, description, content_type, platforms, funnel_layer, status)
-      VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?)
+      INSERT INTO content_calendar (week, day, title, description, content_type, platforms, funnel_layer, status, is_reactive, reactive_source)
+      VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?)
     `).run([
       b.week || 99,
       b.day || null,
@@ -57,6 +57,8 @@ router.post('/', async (req, res, next) => {
       typeof b.platforms === 'string' ? b.platforms : JSON.stringify(Array.isArray(b.platforms) ? b.platforms : []),
       b.funnel_layer || 'Discovery',
       b.status || 'planned',
+      b.is_reactive === true,
+      b.reactive_source || null,
     ]);
     const row = await db.prepare(`SELECT * FROM content_calendar WHERE id = ?`).get([info.lastInsertRowid]);
     res.status(201).json(hydrate(row));

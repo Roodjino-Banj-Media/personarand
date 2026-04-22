@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
+import ReactToNowModal from './Calendar/ReactToNowModal.jsx';
 
 const FUNNEL_LAYERS = [
   { key: 'Discovery', target: 6, tint: 'bg-blue-500/10 border-blue-500/30 text-blue-300' },
@@ -22,6 +23,7 @@ export default function Dashboard() {
   const [calendar, setCalendar] = useState([]);
   const [library, setLibrary] = useState([]);
   const [latestMetrics, setLatestMetrics] = useState([]);
+  const [showReactToNow, setShowReactToNow] = useState(false);
   const [platformHealth, setPlatformHealth] = useState({});
   const [outcomesSummary, setOutcomesSummary] = useState({});
   const [loading, setLoading] = useState(true);
@@ -119,19 +121,28 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <div className="text-[11px] uppercase tracking-widest text-text-secondary mb-2">Core positioning</div>
-        <h1 className="text-2xl md:text-3xl font-semibold leading-tight tracking-tight">
-          Modern power belongs to those who understand{' '}
-          <span className="text-primary">attention</span>,{' '}
-          <span className="text-primary">systems</span>,{' '}
-          <span className="text-primary">leverage</span>, and{' '}
-          <span className="text-primary">execution</span>.
-        </h1>
-        <p className="text-text-secondary mt-3 max-w-3xl">
-          Roodjino Chérilus — Managing Director, Banj Media. The personal brand is the BD engine at a 4:1 ratio against
-          the institutional page. Presence over frequency. Proof over promotion.
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="max-w-3xl">
+          <div className="text-[11px] uppercase tracking-widest text-text-secondary mb-2">Core positioning</div>
+          <h1 className="text-2xl md:text-3xl font-semibold leading-tight tracking-tight">
+            Modern power belongs to those who understand{' '}
+            <span className="text-primary">attention</span>,{' '}
+            <span className="text-primary">systems</span>,{' '}
+            <span className="text-primary">leverage</span>, and{' '}
+            <span className="text-primary">execution</span>.
+          </h1>
+          <p className="text-text-secondary mt-3">
+            Roodjino Chérilus — Managing Director, Banj Media. The personal brand is the BD engine at a 4:1 ratio against
+            the institutional page. Presence over frequency. Proof over promotion.
+          </p>
+        </div>
+        <button
+          className="btn border-amber-500/50 text-amber-400 hover:border-amber-500 hover:text-amber-300 whitespace-nowrap"
+          onClick={() => setShowReactToNow(true)}
+          title="React to news / trends / something happening now. Generates angles or a full post in your voice."
+        >
+          ⚡ React to now
+        </button>
       </div>
 
       {healthStatus && !healthStatus.anthropic_key && (
@@ -350,6 +361,17 @@ export default function Dashboard() {
           setOutcomesSummary(s || {});
         }} />
       </section>
+
+      {showReactToNow && (
+        <ReactToNowModal
+          defaultWeek={calendar.length ? Math.max(...calendar.map((c) => Number(c.week) || 1)) : 1}
+          onClose={() => setShowReactToNow(false)}
+          onItemsAdded={() => {
+            // Reload calendar so Next Up / Funnel coverage refresh immediately.
+            api.calendar.list().then(setCalendar).catch(() => {});
+          }}
+        />
+      )}
     </div>
   );
 }

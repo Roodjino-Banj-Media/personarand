@@ -20,10 +20,36 @@ router.post('/content', async (req, res, next) => {
       title: providedTitle,
       save = true,
       bilingual = false,
+      reactive_source,
     } = req.body || {};
     if (!type) return res.status(400).json({ error: 'type is required' });
 
-    const commonArgs = { type, platform, topic, tone, length, funnel_layer, extra, useFeedbackLoop: true };
+    // Reactive content: when reactive_source is present, reframe the user
+    // message so the AI treats this as TIMELY commentary (24-72h window)
+    // rather than evergreen content. The reactive instructions layer on top
+    // of the existing topic (which can be the chosen angle's title/description).
+    let effectiveTopic = topic;
+    let effectiveExtra = extra;
+    if (reactive_source) {
+      effectiveTopic = `${topic ? topic + '\n\n' : ''}REACTIVE CONTEXT — this post is commentary on something happening right now:
+---
+${reactive_source.trim()}
+---
+
+Write this post as if publishing within 24-72 hours of the source event. Take a specific position. No neutral recap. Filter through the brand voice + doctrine (Architect Tax, Distribution Debt, Legibility Gap, etc.) — use an existing framework if one cuts the problem; don't invent new ones for a one-off post. Apply the Haiti lens only when the source genuinely warrants it. The reader should finish the post knowing what the writer thinks.`;
+      effectiveExtra = extra || '';
+    }
+
+    const commonArgs = {
+      type,
+      platform,
+      topic: effectiveTopic,
+      tone,
+      length,
+      funnel_layer,
+      extra: effectiveExtra,
+      useFeedbackLoop: true,
+    };
 
     // Always generate English first. If bilingual is requested, then generate
     // French using the English draft as a structural reference. Sequential
@@ -105,10 +131,13 @@ router.post('/content', async (req, res, next) => {
       usage_fr: frResult?.usage || null,
       stop_reason: enResult.stop_reason,
       bilingual,
+      reactive: Boolean(reactive_source),
     });
     const info = await db.prepare(`
-      INSERT INTO generated_content (calendar_id, content_type, platform, title, body, title_fr, body_fr, metadata, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, 'draft')
+      INSERT INTO generated_content
+        (calendar_id, content_type, platform, title, body, title_fr, body_fr,
+         metadata, status, is_reactive, reactive_source)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, 'draft', ?, ?)
     `).run([
       calendar_id || null,
       type,
@@ -118,6 +147,8 @@ router.post('/content', async (req, res, next) => {
       titleFr,
       frResult?.text || null,
       metadata,
+      Boolean(reactive_source),
+      reactive_source || null,
     ]);
     const row = await db.prepare('SELECT * FROM generated_content WHERE id = ?').get([info.lastInsertRowid]);
     await advanceCalendarStatus(db);
