@@ -78,6 +78,18 @@ export default function CalendarView() {
     }
   }
 
+  async function handleTitleSave(id, title) {
+    // Inline title edits from the card — saves directly without opening the
+    // drawer. Optimistically patches the item in local state so the card
+    // doesn't flash, then fires-and-forgets a full reload in case anything
+    // else changed on the server side.
+    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, title } : it)));
+    if (activeItem && activeItem.id === id) {
+      setActiveItem({ ...activeItem, title });
+    }
+    await api.calendar.update(id, { title });
+  }
+
   const weeks = useMemo(() => {
     const filtered = items.filter((it) => {
       if (filters.platform && !(it.platforms || []).some((p) => p.includes(filters.platform))) return false;
@@ -192,6 +204,7 @@ export default function CalendarView() {
                   item={item}
                   onClick={() => setActiveItem(item)}
                   onStatusChange={(status) => handleStatusChange(item.id, status)}
+                  onTitleSave={(title) => handleTitleSave(item.id, title)}
                 />
               ))}
             </div>

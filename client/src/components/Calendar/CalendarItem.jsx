@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from 'react';
+
 const STATUS_STYLE = {
   planned: 'border-border text-text-secondary bg-[#1f1f1f]',
   scripted: 'border-blue-500/40 text-blue-300 bg-blue-500/10',
@@ -16,11 +18,64 @@ const CARD_TINT = {
   posted: 'border-success/40 bg-success/[0.05]',
 };
 
-export default function CalendarItem({ item, onClick, onStatusChange }) {
+export default function CalendarItem({ item, onClick, onStatusChange, onTitleSave }) {
   const statusCls = STATUS_STYLE[item.status] || STATUS_STYLE.planned;
   const cardTint = CARD_TINT[item.status] || '';
   const hasDrafts = Number(item.content_count || 0) > 0;
   const hasPosted = Number(item.posted_count || 0) > 0;
+
+  // Inline title editing. Title text is always rendered through this state so
+  // we can optimistically show the user's edits before the server round-trip.
+  // Click on the title → focuses the textarea (stopPropagation prevents the
+  // card's drawer-open click from firing). Blur or Enter → save.
+  const [titleDraft, setTitleDraft] = useState(item.title || '');
+  const [savingTitle, setSavingTitle] = useState(false);
+  const [titleError, setTitleError] = useState(null);
+  const taRef = useRef(null);
+
+  // Re-sync when the item changes underneath (e.g., parent reload).
+  useEffect(() => { setTitleDraft(item.title || ''); }, [item.title, item.id]);
+
+  function autoSize() {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }
+  useEffect(() => { autoSize(); }, [titleDraft]);
+
+  async function commitTitle() {
+    const next = titleDraft.trim();
+    if (!next || next === (item.title || '')) {
+      // Nothing to save; revert any whitespace-only entry.
+      setTitleDraft(item.title || '');
+      return;
+    }
+    if (!onTitleSave) return;
+    setSavingTitle(true);
+    setTitleError(null);
+    try {
+      await onTitleSave(next);
+    } catch (err) {
+      setTitleError(err.message || 'Save failed');
+      // Revert to server value on failure so the user sees what's actually persisted.
+      setTitleDraft(item.title || '');
+    } finally {
+      setSavingTitle(false);
+    }
+  }
+
+  function handleTitleKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      e.currentTarget.blur(); // triggers commitTitle via onBlur
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setTitleDraft(item.title || '');
+      e.currentTarget.blur();
+    }
+  }
+
   return (
     <div
       className={`card-pad cursor-pointer hover:border-[#555] transition-colors ${cardTint}`}
@@ -30,7 +85,25 @@ export default function CalendarItem({ item, onClick, onStatusChange }) {
         <div className="text-[11px] uppercase tracking-widest text-text-secondary">{item.day}</div>
         <span className={`pill ${statusCls}`}>{item.status}</span>
       </div>
-      <div className="text-base font-semibold mt-2 leading-snug">{item.title}</div>
+
+      {/* Inline-editable title. Click into it, edit, Enter or blur to save.
+          stopPropagation prevents the card-level drawer-open click from firing. */}
+      <textarea
+        ref={taRef}
+        value={titleDraft}
+        onChange={(e) => setTitleDraft(e.target.value)}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        onBlur={commitTitle}
+        onKeyDown={handleTitleKeyDown}
+        rows={1}
+        className="w-full bg-transparent text-base font-semibold mt-2 leading-snug outline-none resize-none border-b border-transparent hover:border-border/60 focus:border-primary transition-colors px-0 py-0.5"
+        style={{ overflow: 'hidden' }}
+        title="Click to edit. Press Enter to save, Esc to cancel."
+      />
+      {savingTitle && <div className="text-[10px] text-text-secondary mt-1">Saving…</div>}
+      {titleError && <div className="text-[10px] text-danger mt-1">{titleError}</div>}
+
       {item.funnel_layer && (
         <div className="text-[11px] text-text-secondary mt-2">
           {item.funnel_layer}
