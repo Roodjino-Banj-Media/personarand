@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import ReactToNowModal from './Calendar/ReactToNowModal.jsx';
+import AICalibrationCard from './AICalibrationCard.jsx';
 
 const FUNNEL_LAYERS = [
   { key: 'Discovery', target: 6, tint: 'bg-blue-500/10 border-blue-500/30 text-blue-300' },
@@ -150,6 +151,14 @@ export default function Dashboard() {
           ⚠ ANTHROPIC_API_KEY is not set in .env. Content generation will fail until you add it.
         </div>
       )}
+
+      {/* AI Calibration — the three feedback signals that separate generic
+          operator-class output from voice-specific output. Placed at the top
+          of the Dashboard because it's the single most important habit
+          surface: the tool's ceiling is tied to how these fill in. Collapses
+          to a quiet "✓ Calibrated" state once all three thresholds are met. */}
+      <AICalibrationCard />
+
 
       {/* Review-enforcement ribbon — unrated posted content from the last week.
           Rating closes the feedback loop; every unrated post is teaching signal

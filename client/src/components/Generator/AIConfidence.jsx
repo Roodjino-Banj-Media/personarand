@@ -42,12 +42,16 @@ export default function AIConfidence() {
         <>
           <strong>⚠ Cold start.</strong> AI has 0 strong-rated posts, 0 KB entries, and 0 edit samples.
           Output will sound generic. Rate past posts, fill the KB, and share edited versions to teach the AI your voice.
+          {' '}
+          <a href="/dashboard" className="underline hover:opacity-80">See AI calibration →</a>
         </>
       )}
       {sparse && (
         <>
           <strong>Sparse signal.</strong> AI is referencing{' '}
           <strong>{strongCount}</strong> strong-rated + <strong>{editCount}</strong> edit sample{editCount === 1 ? '' : 's'} + <strong>{kbEntries}</strong> KB entr{kbEntries === 1 ? 'y' : 'ies'}. Adding more improves every future generation.
+          {' '}
+          <a href="/dashboard" className="underline hover:opacity-80">Raise calibration →</a>
         </>
       )}
       {healthy && (
