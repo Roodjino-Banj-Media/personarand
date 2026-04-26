@@ -69,6 +69,12 @@ export default function GenerateModal({ item, seed, onClose }) {
   // Bilingual is defaulted ON because Roodjino's workflow is bilingual by
   // default. Uncheck per-generation for English-only posts.
   const [bilingual, setBilingual] = useState(true);
+  // tieToHorizon: when true, append a user-message instruction asking the
+  // AI to explicitly connect this post to the user's stated strategic
+  // horizon (lives in the voice profile and already sits in the system
+  // prompt, but this turns it from passive context into active direction).
+  const [tieToHorizon, setTieToHorizon] = useState(false);
+  const [horizonText, setHorizonText] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [copying, setCopying] = useState(false);
   const [copyMsg, setCopyMsg] = useState(null);
@@ -77,6 +83,32 @@ export default function GenerateModal({ item, seed, onClose }) {
   const [result, setResult] = useState(null);
   const [hooks, setHooks] = useState(null); // array of hook strings
   const [hooksBusy, setHooksBusy] = useState(false);
+
+  // Load the user's strategic horizon once on mount. If empty, the
+  // tie-to-horizon toggle is hidden — there's nothing to tie to.
+  useEffect(() => {
+    let mounted = true;
+    api.voiceProfile.get()
+      .then((r) => {
+        if (!mounted) return;
+        const h = r?.profile?.strategic_horizon;
+        if (h && String(h).trim().length > 0) setHorizonText(String(h).trim());
+      })
+      .catch(() => { /* silently — voice profile is optional */ });
+    return () => { mounted = false; };
+  }, []);
+
+  /** Compose the final extra instruction sent to /api/generate, folding
+   *  in the horizon directive when the toggle is on. Pure function so
+   *  copy-prompt and generate share the exact same composed text. */
+  function composedExtra(base) {
+    const parts = [];
+    if (base) parts.push(base);
+    if (tieToHorizon && horizonText) {
+      parts.push(`STRATEGIC HORIZON DIRECTIVE — this post must explicitly advance the writer's stated arc:\n"${horizonText}"\nMake the connection visible in the post itself: name what part of the arc this moves forward, or what it builds toward. Do not simply mention the horizon as backdrop.`);
+    }
+    return parts.length > 0 ? parts.join('\n\n') : undefined;
+  }
 
   const headerLabel = item
     ? `Generate \u00b7 Week ${item.week} \u00b7 ${item.day}`
@@ -101,7 +133,7 @@ export default function GenerateModal({ item, seed, onClose }) {
         // Pass the clean title separately so the server doesn't slice
         // "Title\n\nBrief: ..." into the saved title field.
         title: item?.title || seed?.topic || undefined,
-        extra: regenExtra || extra || undefined,
+        extra: composedExtra(regenExtra || extra),
         bilingual,
         save: true,
       };
@@ -162,7 +194,7 @@ export default function GenerateModal({ item, seed, onClose }) {
         tone,
         length,
         funnel_layer: item?.funnel_layer || seed?.funnel_layer,
-        extra: extra || undefined,
+        extra: composedExtra(extra),
       });
       const ok = await copyToClipboard(combined);
       setCopyMsg(ok
@@ -263,6 +295,30 @@ export default function GenerateModal({ item, seed, onClose }) {
                 </div>
               </div>
             </label>
+
+            {/* Tie-to-horizon — only renders when the user has filled in
+                their strategic_horizon. Without that there's nothing for
+                the toggle to anchor to, and showing it would be dead UI. */}
+            {horizonText && (
+              <label className={`flex items-start gap-2 p-3 rounded-md border cursor-pointer transition-colors ${tieToHorizon ? 'border-primary/40 bg-primary/5' : 'border-border hover:border-[#555]'}`}>
+                <input
+                  type="checkbox"
+                  checked={tieToHorizon}
+                  onChange={(e) => setTieToHorizon(e.target.checked)}
+                  disabled={generating}
+                  className="mt-0.5"
+                />
+                <div className="min-w-0">
+                  <div className="text-sm">🎯 Make this advance my horizon</div>
+                  <div className="text-[11px] text-text-secondary mt-0.5 leading-snug">
+                    Forces the AI to explicitly tie this post to your stated 6–12 month arc, instead of leaving the connection implicit. Use sparingly — every post doesn't need to invoke the arc directly.
+                  </div>
+                  <blockquote className="text-[11px] text-text-secondary mt-1.5 italic line-clamp-2 border-l-2 border-border pl-2" title={horizonText}>
+                    {horizonText}
+                  </blockquote>
+                </div>
+              </label>
+            )}
             <div className="space-y-2">
               <button
                 className="btn w-full justify-center"
