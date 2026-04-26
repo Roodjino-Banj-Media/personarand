@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
+import { api } from '../lib/api.js';
 
 const NAV = [
   { to: '/dashboard', label: 'Dashboard', hint: 'Strategic overview' },
@@ -19,6 +21,24 @@ const NAV = [
 ];
 
 export default function Sidebar({ mobileOpen, onClose, onSignOut, user }) {
+  // Voice profile completeness — pulled once on mount so it's visible
+  // wherever the user navigates in the app. Surfaced as a small badge on
+  // the Voice profile nav item; ambient feedback rather than a card the
+  // user has to open. Failures are silent — the sidebar still works
+  // without the badge.
+  const [voiceScore, setVoiceScore] = useState(null);
+  useEffect(() => {
+    let mounted = true;
+    api.voiceProfile.get()
+      .then((r) => {
+        if (!mounted) return;
+        const score = r?.cached_score?.total ?? r?.local_score?.total ?? null;
+        setVoiceScore(score);
+      })
+      .catch(() => { /* silent — voice profile is optional context */ });
+    return () => { mounted = false; };
+  }, []);
+
   return (
     <>
       {mobileOpen && (
@@ -42,23 +62,36 @@ export default function Sidebar({ mobileOpen, onClose, onSignOut, user }) {
           <div className="text-[11px] text-text-secondary mt-1">Command center</div>
         </div>
         <nav className="flex-1 py-4 px-3 overflow-y-auto">
-          {NAV.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              onClick={() => onClose?.()}
-              className={({ isActive }) =>
-                `block px-3 py-2.5 rounded-md mb-1 transition-colors ${
-                  isActive
-                    ? 'bg-[#1f1f1f] border border-border text-text-primary'
-                    : 'text-text-secondary hover:bg-[#1f1f1f] hover:text-text-primary'
-                }`
-              }
-            >
-              <div className="text-sm font-medium">{item.label}</div>
-              <div className="text-[11px] text-text-secondary mt-0.5">{item.hint}</div>
-            </NavLink>
-          ))}
+          {NAV.map((item) => {
+            const showVoiceBadge = item.to === '/voice-profile' && voiceScore != null;
+            const badgeColor = showVoiceBadge
+              ? voiceScore >= 80 ? 'text-success' : voiceScore >= 60 ? 'text-primary' : voiceScore >= 40 ? 'text-warning' : 'text-danger'
+              : null;
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                onClick={() => onClose?.()}
+                className={({ isActive }) =>
+                  `block px-3 py-2.5 rounded-md mb-1 transition-colors ${
+                    isActive
+                      ? 'bg-[#1f1f1f] border border-border text-text-primary'
+                      : 'text-text-secondary hover:bg-[#1f1f1f] hover:text-text-primary'
+                  }`
+                }
+              >
+                <div className="text-sm font-medium flex items-center justify-between gap-2">
+                  <span>{item.label}</span>
+                  {showVoiceBadge && (
+                    <span className={`text-[10px] font-mono ${badgeColor}`} title={`Voice profile completeness — ${voiceScore}%`}>
+                      {voiceScore}%
+                    </span>
+                  )}
+                </div>
+                <div className="text-[11px] text-text-secondary mt-0.5">{item.hint}</div>
+              </NavLink>
+            );
+          })}
         </nav>
         <div className="px-6 py-5 border-t border-border text-[11px] text-text-secondary leading-relaxed">
           {user && (
