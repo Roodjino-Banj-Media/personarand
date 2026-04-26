@@ -309,6 +309,124 @@ router.get('/:id', async (req, res, next) => {
  * Sits ABOVE /:id and /:id/* routes for the same reason rigor-check
  * does — Express matches in registration order.
  */
+/**
+ * POST /api/content/insights
+ *
+ * AI-driven performance pattern analysis. Reads up to 25 recent posts
+ * that have either a performance rating OR per-post metrics, plus the
+ * user's voice profile, and asks Haiku to find what's working and what's
+ * not. Returns structured insight the dashboard widget renders.
+ *
+ * No persistence — pure read+analyze. The user can refresh whenever they
+ * want a fresh take. We don't auto-cache because the underlying data
+ * changes whenever the user rates a post or enters metrics.
+ *
+ * Returns 200 with `insufficient_data: true` when the user has fewer
+ * than 5 rated/measured posts — patterns from 1-2 data points are
+ * worse than no patterns at all.
+ */
+router.post('/insights', async (req, res, next) => {
+  try {
+    const db = openDb();
+    const rows = await db.prepare(`
+      SELECT id, title, body, platform, content_type, performance,
+             post_reach, post_impressions, post_likes, post_comments,
+             post_shares, post_saves, post_clicks, posted_at, post_metrics_at
+      FROM generated_content
+      WHERE (performance IS NOT NULL OR post_metrics_at IS NOT NULL)
+        AND status = 'posted'
+      ORDER BY COALESCE(post_metrics_at, posted_at, created_at) DESC
+      LIMIT 25
+    `).all();
+
+    if (!rows || rows.length < 5) {
+      return res.json({
+        insufficient_data: true,
+        count: rows ? rows.length : 0,
+        threshold: 5,
+        message: 'Need at least 5 rated or measured posted items for the AI to find reliable patterns. Rate more posts (👎/👌/🔥) or enter metrics on existing ones.',
+      });
+    }
+
+    // Compose a compact corpus the model can absorb in one shot.
+    const corpus = rows.map((r, i) => {
+      const stats = [];
+      if (r.performance) stats.push(`rated: ${r.performance}`);
+      if (r.post_reach != null) stats.push(`reach: ${r.post_reach}`);
+      if (r.post_impressions != null) stats.push(`imp: ${r.post_impressions}`);
+      if (r.post_likes != null) stats.push(`likes: ${r.post_likes}`);
+      if (r.post_comments != null) stats.push(`comments: ${r.post_comments}`);
+      if (r.post_shares != null) stats.push(`shares: ${r.post_shares}`);
+      if (r.post_saves != null) stats.push(`saves: ${r.post_saves}`);
+      const excerpt = String(r.body || '').slice(0, 800);
+      return `### Post ${i + 1} — ${r.platform || 'multi'} / ${r.content_type || 'post'}\n${stats.join(' · ')}\nTITLE: ${r.title || '—'}\nBODY: ${excerpt}${r.body && r.body.length > 800 ? '…' : ''}`;
+    }).join('\n\n---\n\n');
+
+    const userMessage = `Find performance patterns in the writer's recent posted content. The corpus below contains ${rows.length} posts with either qualitative ratings (poor/good/strong) and/or per-post metrics (reach, likes, comments, shares, saves).
+
+Return STRICT JSON of this exact shape:
+
+{
+  "summary": "<2-3 sentences: the headline pattern across this corpus>",
+  "strong_patterns": [
+    "<one specific pattern that correlates with strong performance — name the structural / tonal / topical element>",
+    "<another>"
+  ],
+  "weak_patterns": [
+    "<one specific pattern in the weak posts — what they have in common that the strong ones avoid>",
+    "<another>"
+  ],
+  "experiments": [
+    "<one concrete experiment to run next week — should be testable in a single post>",
+    "<another>"
+  ]
+}
+
+Rules:
+- Be specific. "Use better hooks" is useless; "your strong posts open with a single declarative claim, the weak ones open with a question" is useful.
+- Ground claims in the corpus — quote phrases or describe structural patterns you actually see.
+- 2-4 items per list. No filler.
+- If you can't find a real pattern (e.g., the posts are too varied), say so honestly in the summary and return short lists.
+
+CORPUS:
+${corpus}
+
+Output JSON only.`;
+
+    const result = await generate({
+      type: 'article',
+      platform: 'multi',
+      topic: userMessage,
+      tone: 'sharp',
+      length: 'short',
+      extra: 'Return ONLY the JSON object. No preamble, no code fences.',
+      model: 'haiku',
+      useFeedbackLoop: false,
+    });
+
+    let parsed;
+    try {
+      const cleaned = result.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+      parsed = JSON.parse(cleaned);
+    } catch {
+      return res.status(502).json({
+        error: 'Insights returned non-JSON',
+        raw: result.text,
+      });
+    }
+
+    res.json({
+      insufficient_data: false,
+      count: rows.length,
+      summary: parsed.summary || '',
+      strong_patterns: Array.isArray(parsed.strong_patterns) ? parsed.strong_patterns : [],
+      weak_patterns: Array.isArray(parsed.weak_patterns) ? parsed.weak_patterns : [],
+      experiments: Array.isArray(parsed.experiments) ? parsed.experiments : [],
+      generated_at: new Date().toISOString(),
+    });
+  } catch (e) { next(e); }
+});
+
 router.post('/:id/metrics', async (req, res, next) => {
   try {
     const db = openDb();

@@ -205,6 +205,7 @@ export const api = {
     refine: (id, payload) => request(`/api/content/${id}/refine`, { method: 'POST', body: payload }),
     rigorCheck: (payload) => request('/api/content/rigor-check', { method: 'POST', body: payload }),
     metrics: (id, payload) => request(`/api/content/${id}/metrics`, { method: 'POST', body: payload }),
+    insights: () => request('/api/content/insights', { method: 'POST', body: {} }),
     facets: () => request('/api/content/facets'),
     topPerformers: (limit = 5) => request(`/api/content/top-performers?limit=${limit}`),
     export: () => downloadFile('/api/content/export', 'library-export.md'),

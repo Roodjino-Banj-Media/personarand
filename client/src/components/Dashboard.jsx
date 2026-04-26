@@ -5,6 +5,7 @@ import AICalibrationCard from './AICalibrationCard.jsx';
 import VoiceScoreCard from './VoiceProfile/VoiceScoreCard.jsx';
 import HorizonStripe from './VoiceProfile/HorizonStripe.jsx';
 import NextStepsCard from './NextStepsCard.jsx';
+import PerformanceInsightsCard from './PerformanceInsightsCard.jsx';
 
 const FUNNEL_LAYERS = [
   { key: 'Discovery', target: 6, tint: 'bg-blue-500/10 border-blue-500/30 text-blue-300' },
@@ -174,6 +175,14 @@ export default function Dashboard() {
       <HorizonStripe />
 
       <AICalibrationCard />
+
+      {/* Performance insights — closes the feedback loop end-to-end.
+          Reads recent rated + measured posts and surfaces patterns the
+          user can act on. Opt-in (button-triggered) so we don't burn
+          Haiku tokens on every dashboard load — the underlying data
+          only changes when the user rates or measures, so re-running
+          before then has no value. */}
+      <PerformanceInsightsCard />
 
       {/* Voice Profile completeness — the structured voice document that
           drives every generation. Sits adjacent to AI Calibration because
