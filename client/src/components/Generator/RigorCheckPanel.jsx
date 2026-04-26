@@ -24,6 +24,12 @@ const RULE_META = {
   'missing-counter':   { label: 'Missing counter',      icon: '⚖️' },
   'framework':         { label: 'Framework unnamed',    icon: '🏛' },
   'prose':             { label: 'Prose discipline',     icon: '📝' },
+  // Voice-profile-aware rules — flagged when the user has populated the
+  // matching profile dimension. The critic injects the profile's voice
+  // laws and anti-voice patterns into its rule set, so violations here
+  // are always specific to the user's own brand voice document.
+  'voice-law':         { label: 'Voice law',            icon: '⚙️' },
+  'anti-voice':        { label: 'Anti-voice tone',      icon: '🚫' },
 };
 
 const SEVERITY_STYLE = {

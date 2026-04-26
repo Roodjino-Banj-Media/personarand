@@ -443,6 +443,66 @@ const CORPUS_EXTRACTION_SYSTEM_PROMPT = `You are a brand-strategist extractor. Y
 Output strict JSON only.`;
 
 // -----------------------------------------------------------------------------
+// Critic rules — voice-profile-aware
+// -----------------------------------------------------------------------------
+
+/**
+ * Compile a voice profile into the dynamic rule lines the rigor critic
+ * uses. Returns null when the profile is too thin to produce voice-aware
+ * rules (caller falls back to the hardcoded rule list).
+ *
+ * The shape returned is a fragment that drops into the user message of
+ * the critic call, between the universal rigor rules and the JSON-shape
+ * instructions. It's structured so the critic can flag:
+ *
+ *   - voice-law violations  → the user's own style rules ("write in prose")
+ *   - anti-voice violations → tones the user explicitly rejects
+ *   - framework             → adjacency to the user's NAMED frameworks,
+ *                             not Roodjino's hardcoded ones
+ *
+ * Frameworks list is also used to override the universal "framework"
+ * rule's example list. This is what makes the critic actually portable
+ * between customers.
+ */
+function buildCriticRules(profile) {
+  if (!profile) return null;
+
+  const voiceLaws = Array.isArray(profile.voice_laws) ? profile.voice_laws.filter(Boolean) : [];
+  const antiVoice = Array.isArray(profile.anti_voice) ? profile.anti_voice.filter(Boolean) : [];
+  const frameworks = Array.isArray(profile.frameworks) ? profile.frameworks.filter((f) => f && f.name) : [];
+
+  // If none of the three voice-aware fields are filled, the critic stays
+  // on its hardcoded rule list.
+  if (voiceLaws.length === 0 && antiVoice.length === 0 && frameworks.length === 0) return null;
+
+  const lines = [];
+  lines.push('VOICE-PROFILE RULES (specific to this writer; flag in addition to the universal rules above):');
+  lines.push('');
+
+  if (voiceLaws.length > 0) {
+    lines.push('- "voice-law": violation of one of the writer\'s explicit voice laws. Use rule code "voice-law" and quote the offending passage. The writer\'s laws:');
+    for (const law of voiceLaws) lines.push(`  · ${law}`);
+  }
+
+  if (antiVoice.length > 0) {
+    lines.push('- "anti-voice": passage reads in a tone the writer has explicitly rejected. Use rule code "anti-voice". Patterns the writer rejects:');
+    for (const a of antiVoice) lines.push(`  · ${a}`);
+  }
+
+  if (frameworks.length > 0) {
+    lines.push('- "framework": the draft\'s argument is structurally adjacent to one of the writer\'s NAMED frameworks but doesn\'t name it. Use rule code "framework". The writer\'s frameworks:');
+    for (const f of frameworks) {
+      const name = String(f.name || '').trim();
+      const desc = String(f.description || '').trim();
+      lines.push(`  · ${name}${desc ? ` — ${desc}` : ''}`);
+    }
+  }
+
+  lines.push('');
+  return lines.join('\n');
+}
+
+// -----------------------------------------------------------------------------
 // AI-extraction prompt (for users to paste into their existing AI)
 // -----------------------------------------------------------------------------
 
@@ -500,4 +560,5 @@ module.exports = {
   buildCorpusExtractionMessage,
   CORPUS_EXTRACTION_SYSTEM_PROMPT,
   AI_EXTRACTION_PROMPT,
+  buildCriticRules,
 };

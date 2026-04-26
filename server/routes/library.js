@@ -1,6 +1,7 @@
 const express = require('express');
 const { openDb } = require('../db');
 const { generate, invalidateTopPerformersCache, invalidateRecentEditsCache } = require('../lib/anthropic');
+const { buildCriticRules } = require('../lib/voiceProfile');
 
 const router = express.Router();
 
@@ -154,6 +155,45 @@ router.post('/rigor-check', async (req, res, next) => {
       return res.status(400).json({ error: 'body (50+ chars) required' });
     }
 
+    // Load the voice profile so the critic can flag user-specific
+    // violations (voice laws, anti-voice patterns, named frameworks).
+    // When the profile is too thin, voiceRules is null and the critic
+    // stays on the hardcoded rule list — same behavior as before.
+    let voiceRules = null;
+    let frameworkExamples = 'a Signature Doctrine framework (Architect Tax, Distribution Debt, Communication Infrastructure, Constraint as X-Ray, Legibility Gap, Operational Aesthetics, R&D Through Exposure, Presence Compounds)';
+    try {
+      const dbForProfile = openDb();
+      const rows = await dbForProfile.prepare(`
+        SELECT voice_laws, anti_voice, frameworks
+        FROM voice_profiles
+        WHERE is_primary = TRUE
+        LIMIT 1
+      `).all();
+      if (rows && rows[0]) {
+        // postgres.js returns JSONB as parsed values, but be defensive.
+        const profile = rows[0];
+        for (const k of ['voice_laws', 'anti_voice', 'frameworks']) {
+          if (typeof profile[k] === 'string') {
+            try { profile[k] = JSON.parse(profile[k]); } catch { profile[k] = []; }
+          }
+          if (!Array.isArray(profile[k])) profile[k] = [];
+        }
+        voiceRules = buildCriticRules(profile);
+        const namedFrameworks = profile.frameworks
+          .map((f) => String(f?.name || '').trim())
+          .filter(Boolean);
+        if (namedFrameworks.length > 0) {
+          frameworkExamples = `one of the writer's named frameworks (${namedFrameworks.join(', ')})`;
+        }
+      }
+    } catch (err) {
+      // Migration probably hasn't run yet — silently fall back. The critic
+      // still works on universal rules.
+      console.warn('[rigor-check] voice profile load failed:', err.message);
+    }
+
+    const ruleEnumExtension = voiceRules ? ' | "voice-law" | "anti-voice"' : '';
+
     const topic = `You are the RIGOR CRITIC for this brand voice. You are reviewing a draft against the voice document's Evidentiary Rigor and Prose Discipline rules (already in your system prompt). Your job is to FLAG violations, not rewrite.
 
 DRAFT TO REVIEW (${content_type || 'post'} for ${platform || 'LinkedIn'}, ${language === 'fr' ? 'French' : 'English'}):
@@ -168,7 +208,7 @@ Return a JSON object with this exact shape:
   "summary": "one sentence on the overall read",
   "violations": [
     {
-      "rule": "invented-stats" | "vague-quantifier" | "hedge" | "no-position" | "missing-counter" | "framework" | "prose",
+      "rule": "invented-stats" | "vague-quantifier" | "hedge" | "no-position" | "missing-counter" | "framework" | "prose"${ruleEnumExtension},
       "quote": "the offending passage, quoted verbatim from the draft",
       "fix": "one-sentence concrete fix the writer can apply",
       "severity": "low" | "medium" | "high"
@@ -183,9 +223,10 @@ Rule definitions:
 - "hedge": "arguably," "it could be said," "many believe," "I think maybe," "perhaps," "some would say." Confident first-person ("I think," "my read is") is NOT hedge — do not flag these.
 - "no-position": the draft recaps or summarizes without stating a position. The reader closes the piece without knowing what the writer thinks.
 - "missing-counter": the draft makes a claim that has an obvious rebuttal, and the draft never addresses it. Only flag if the counter is genuinely obvious and the piece could be sharpened by naming it.
-- "framework": the draft's argument is structurally adjacent to a Signature Doctrine framework (Architect Tax, Distribution Debt, Communication Infrastructure, Constraint as X-Ray, Legibility Gap, Operational Aesthetics, R&D Through Exposure, Presence Compounds) but doesn't name it. Not every piece needs a framework — only flag when one genuinely fits and its absence reads as generic.
+- "framework": the draft's argument is structurally adjacent to ${frameworkExamples} but doesn't name it. Not every piece needs a framework — only flag when one genuinely fits and its absence reads as generic.
 - "prose": contains a bullet list or numbered list where Prose Discipline would require full sentences. Does NOT flag justified lists (step-by-step instructions, structured JSON output, parallel enumerations).
 
+${voiceRules || ''}
 Status mapping:
 - "pass": no violations, or only 'low' severity items the writer might choose to leave alone
 - "warn": one or more 'medium' violations — the draft is publishable but could be sharpened
