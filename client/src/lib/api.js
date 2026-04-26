@@ -251,6 +251,10 @@ export const api = {
     remove: (id) => request(`/api/knowledge/${id}`, { method: 'DELETE' }),
     toggle: (ids, is_active) => request('/api/knowledge/toggle', { method: 'POST', body: { ids, is_active } }),
     export: () => downloadFile('/api/knowledge/export', 'knowledge-export.md'),
+    importMarkdown: (markdown, opts = {}) => request('/api/knowledge/import-markdown', {
+      method: 'POST',
+      body: { markdown, ...opts },
+    }),
   },
   quickCapture: {
     classify: (text) => request('/api/quick-capture/classify', { method: 'POST', body: { text } }),

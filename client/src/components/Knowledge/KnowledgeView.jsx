@@ -147,6 +147,7 @@ export default function KnowledgeView() {
   // GenerateModal with the entry's title + content as the seed topic so
   // the AI generates from the captured thought without retyping.
   const [generateFrom, setGenerateFrom] = useState(null);
+  const [importing, setImporting] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -204,6 +205,9 @@ export default function KnowledgeView() {
             title="Download all knowledge entries as a single markdown file"
           >
             ⬇ Export
+          </button>
+          <button className="btn-ghost" onClick={() => setImporting(true)} title="Bulk-create entries from a markdown document with ## section headings">
+            ⬆ Import markdown
           </button>
           <button className="btn-primary" onClick={() => setEditing('new')}>+ New entry</button>
         </div>
@@ -337,6 +341,13 @@ export default function KnowledgeView() {
         />
       )}
 
+      {importing && (
+        <ImportMarkdownModal
+          onClose={() => setImporting(false)}
+          onImported={() => { setImporting(false); load(); }}
+        />
+      )}
+
       {generateFrom && (
         <GenerateModal
           seed={{
@@ -352,6 +363,147 @@ export default function KnowledgeView() {
       )}
     </div>
   );
+}
+
+/**
+ * Bulk markdown importer. Splits on level-2 headings (## Title); each
+ * section becomes one KB entry. Optional metadata bullets immediately
+ * under a heading override defaults:
+ *
+ *   ## Working with [client]
+ *   - Category: client
+ *   - Active: yes
+ *
+ *   …content here…
+ *
+ * Preview is computed client-side so the user sees how their markdown
+ * will be parsed BEFORE committing — we never want a surprise import
+ * that creates 17 wrong entries.
+ */
+function ImportMarkdownModal({ onClose, onImported }) {
+  const [markdown, setMarkdown] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [defaultActive, setDefaultActive] = useState(true);
+
+  const sections = parseSectionsClientSide(markdown);
+
+  async function commit() {
+    setError(null);
+    setBusy(true);
+    try {
+      const r = await api.knowledge.importMarkdown(markdown, { default_active: defaultActive });
+      onImported?.(r);
+    } catch (e) {
+      setError(e.message || 'Import failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3" onClick={onClose}>
+      <div className="card-pad bg-card border border-border w-full max-w-3xl max-h-[90vh] overflow-y-auto space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-[11px] uppercase tracking-widest text-text-secondary">Bulk import</div>
+            <div className="text-lg font-semibold mt-1">Import knowledge from markdown</div>
+            <div className="text-[11px] text-text-secondary mt-1 leading-relaxed max-w-2xl">
+              Paste a markdown document. Each <code>## Heading</code> becomes one KB entry. Add optional metadata bullets under a heading: <code>- Category: framework</code> or <code>- Active: yes/no</code>. Capped at 50 sections per import.
+            </div>
+          </div>
+          <button className="btn-ghost" onClick={onClose} disabled={busy}>✕</button>
+        </div>
+
+        <textarea
+          className="input min-h-[260px] font-mono text-xs"
+          placeholder={`## Distribution Debt\n- Category: framework\n\nThe unrealized commercial value of work you have done but not made legible to your market.\n\n## Working with Banj Media\n- Category: project\n\nWe are building...`}
+          value={markdown}
+          onChange={(e) => setMarkdown(e.target.value)}
+          disabled={busy}
+        />
+
+        <div className="flex items-center gap-3 flex-wrap">
+          <label className="flex items-center gap-2 text-xs text-text-secondary">
+            <input
+              type="checkbox"
+              checked={defaultActive}
+              onChange={(e) => setDefaultActive(e.target.checked)}
+              disabled={busy}
+            />
+            Activate imported entries by default
+          </label>
+        </div>
+
+        {sections.length > 0 && (
+          <div className="space-y-2">
+            <div className="text-xs text-text-secondary">
+              Preview · {sections.length} {sections.length === 1 ? 'entry' : 'entries'} will be created:
+            </div>
+            <div className="space-y-1 max-h-[200px] overflow-y-auto">
+              {sections.map((s, i) => (
+                <div key={i} className="text-[11px] flex items-center gap-2 rounded border border-border bg-[#0f0f0f] p-2">
+                  <span className="font-mono text-text-secondary">{i + 1}.</span>
+                  <span className="font-semibold text-text-primary truncate">{s.title}</span>
+                  {s.category && <span className="pill border-border text-text-secondary text-[10px]">{s.category}</span>}
+                  {s.is_active === false && <span className="text-warning text-[10px]">inactive</span>}
+                  <span className="text-text-secondary text-[10px] ml-auto">{s.contentChars} chars</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {markdown && sections.length === 0 && (
+          <div className="text-xs text-warning">No <code>## Heading</code> sections found. Each entry needs a level-2 markdown heading.</div>
+        )}
+
+        {error && <div className="text-xs text-danger">{error}</div>}
+
+        <div className="flex justify-end gap-2">
+          <button className="btn-ghost text-xs" onClick={onClose} disabled={busy}>Cancel</button>
+          <button
+            className="btn-primary text-xs"
+            onClick={commit}
+            disabled={busy || sections.length === 0}
+          >
+            {busy ? 'Importing…' : `Import ${sections.length} ${sections.length === 1 ? 'entry' : 'entries'} →`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Mirror of the server-side parser for client-side preview. Kept simple
+ *  on purpose — the server is the source of truth on import; this is
+ *  just so the user sees what will happen before clicking Import. */
+function parseSectionsClientSide(markdown) {
+  const lines = (markdown || '').replace(/\r\n/g, '\n').split('\n');
+  const out = [];
+  let cur = null;
+  function push() {
+    if (!cur) return;
+    const content = cur._raw.join('\n').trim();
+    out.push({ title: cur.title, category: cur.category, is_active: cur.is_active, contentChars: content.length });
+    cur = null;
+  }
+  for (const line of lines) {
+    const m = line.match(/^##\s+(.+)$/);
+    if (m) { push(); cur = { title: m[1].trim(), _raw: [], category: null, is_active: null }; continue; }
+    if (!cur) continue;
+    const meta = line.match(/^\s*-\s*(category|active)\s*:\s*(.+?)\s*$/i);
+    if (meta && cur._raw.length === 0) {
+      const k = meta[1].toLowerCase();
+      const v = meta[2].toLowerCase().trim();
+      if (k === 'category') cur.category = v;
+      if (k === 'active') cur.is_active = ['yes', 'true', '1'].includes(v);
+      continue;
+    }
+    cur._raw.push(line);
+  }
+  push();
+  return out;
 }
 
 function Stat({ label, value, hint }) {
