@@ -4,6 +4,7 @@ import ReactToNowModal from './Calendar/ReactToNowModal.jsx';
 import AICalibrationCard from './AICalibrationCard.jsx';
 import VoiceScoreCard from './VoiceProfile/VoiceScoreCard.jsx';
 import HorizonStripe from './VoiceProfile/HorizonStripe.jsx';
+import NextStepsCard from './NextStepsCard.jsx';
 
 const FUNNEL_LAYERS = [
   { key: 'Discovery', target: 6, tint: 'bg-blue-500/10 border-blue-500/30 text-blue-300' },
@@ -159,6 +160,12 @@ export default function Dashboard() {
           of the Dashboard because it's the single most important habit
           surface: the tool's ceiling is tied to how these fill in. Collapses
           to a quiet "✓ Calibrated" state once all three thresholds are met. */}
+      {/* Next steps — adaptive "highest-leverage thing right now" card.
+          Reads voice profile, KB, calendar, library state and prescribes
+          the single best next action plus two secondaries. Hides
+          entirely once the user is fully onboarded and producing. */}
+      <NextStepsCard />
+
       {/* Horizon strip — orienting reminder of what this year is supposed to
           build. Sits above the calibration cards because the horizon is the
           single most important thing to recall before reading the day's
