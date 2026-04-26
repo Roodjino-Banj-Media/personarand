@@ -284,6 +284,9 @@ export const api = {
     export: () => downloadFile('/api/voice-profile/export', 'voice-profile.json'),
     import: (payload) => request('/api/voice-profile/import', { method: 'POST', body: { payload } }),
     compiled: () => request('/api/voice-profile/compiled'),
+    sharpenDimension: (dimension) => request('/api/voice-profile/sharpen-dimension', {
+      method: 'POST', body: { dimension },
+    }),
   },
   health: () => request('/api/health'),
   uploads: {

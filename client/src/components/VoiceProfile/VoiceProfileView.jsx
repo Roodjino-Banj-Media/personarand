@@ -643,6 +643,51 @@ function ScorePanel({ total, isAiScored, breakdown, sourceMode, onRescore, scori
 // -----------------------------------------------------------------------------
 
 function DimensionEditor({ dim, value, score, onChange }) {
+  const [sharpenBusy, setSharpenBusy] = useState(false);
+  const [suggestions, setSuggestions] = useState(null); // null | array
+  const [sharpenError, setSharpenError] = useState(null);
+
+  async function sharpen() {
+    setSharpenBusy(true);
+    setSharpenError(null);
+    try {
+      const r = await api.voiceProfile.sharpenDimension(dim.key);
+      setSuggestions(r.suggestions || []);
+    } catch (e) {
+      setSharpenError(e.message || 'Sharpen failed');
+    } finally {
+      setSharpenBusy(false);
+    }
+  }
+
+  /** Apply a single suggestion to the dimension's current value.
+   *  Behavior depends on dim.kind:
+   *    - text  : replace (the suggestion IS the new value)
+   *    - list  : append (de-duped, case-insensitive)
+   *    - pairs : append (de-duped on the primary pairKey)
+   */
+  function applySuggestion(suggestion) {
+    if (dim.kind === 'text') {
+      onChange(String(suggestion || ''));
+      return;
+    }
+    if (dim.kind === 'list') {
+      const arr = Array.isArray(value) ? value : [];
+      const seen = new Set(arr.map((s) => String(s || '').trim().toLowerCase()));
+      const next = String(suggestion || '').trim();
+      if (next && !seen.has(next.toLowerCase())) onChange([...arr, next]);
+      return;
+    }
+    if (dim.kind === 'pairs') {
+      const arr = Array.isArray(value) ? value : [];
+      const primary = (dim.pairKeys || [])[0];
+      if (!primary) return;
+      const seen = new Set(arr.map((p) => String(p?.[primary] || '').trim().toLowerCase()));
+      const newKey = String(suggestion?.[primary] || '').trim().toLowerCase();
+      if (newKey && !seen.has(newKey)) onChange([...arr, suggestion]);
+    }
+  }
+
   return (
     <div className="card-pad space-y-3">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -650,9 +695,18 @@ function DimensionEditor({ dim, value, score, onChange }) {
           <div className="text-sm font-semibold">{dim.label}</div>
           <div className="text-[11px] text-text-secondary mt-0.5 max-w-2xl leading-relaxed">{dim.hint}</div>
         </div>
-        <div className="text-[11px] text-text-secondary text-right whitespace-nowrap">
-          Weight {dim.weight}
-          {score && <span className="ml-2 font-mono">{score.score ?? 0}/100</span>}
+        <div className="text-[11px] text-text-secondary text-right whitespace-nowrap flex items-center gap-2">
+          <button
+            type="button"
+            className="btn-ghost text-[11px] !text-primary hover:bg-primary/10"
+            onClick={sharpen}
+            disabled={sharpenBusy}
+            title="Read the rest of your profile and propose 2–4 specific improvements for this dimension"
+          >
+            {sharpenBusy ? '…' : '✨ Sharpen'}
+          </button>
+          <span>Weight {dim.weight}</span>
+          {score && <span className="font-mono">{score.score ?? 0}/100</span>}
         </div>
       </div>
 
@@ -677,12 +731,56 @@ function DimensionEditor({ dim, value, score, onChange }) {
         />
       )}
 
+      {/* Sharpen suggestions panel — appears below the editor. Each
+          suggestion is one-click applicable; the user can dismiss the
+          whole panel when done. */}
+      {suggestions && suggestions.length > 0 && (
+        <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[11px] uppercase tracking-wider text-primary">AI suggestions for this dimension</div>
+            <button type="button" className="text-[11px] text-text-secondary hover:text-text-primary" onClick={() => setSuggestions(null)}>✕ Dismiss</button>
+          </div>
+          <div className="space-y-1.5">
+            {suggestions.map((s, i) => (
+              <SuggestionCard key={i} suggestion={s} kind={dim.kind} pairKeys={dim.pairKeys} onApply={() => applySuggestion(s)} />
+            ))}
+          </div>
+        </div>
+      )}
+      {suggestions && suggestions.length === 0 && (
+        <div className="text-[11px] text-text-secondary italic">No suggestions returned. Try filling in more of your profile first — the sharpener uses other dimensions as context.</div>
+      )}
+      {sharpenError && <div className="text-[11px] text-warning">{sharpenError}</div>}
+
       {score?.note && (
         <div className="text-[11px] text-text-secondary border-l-2 border-border pl-2 italic">
           AI critic: {score.note}
         </div>
       )}
     </div>
+  );
+}
+
+/** A single AI-suggested improvement card; one click applies it. Renders
+ *  differently based on the parent dimension's kind. */
+function SuggestionCard({ suggestion, kind, pairKeys, onApply }) {
+  let display;
+  if (kind === 'text' || kind === 'list') {
+    display = String(suggestion || '');
+  } else if (kind === 'pairs' && suggestion && typeof suggestion === 'object') {
+    display = (pairKeys || []).map((k) => `${k}: ${suggestion[k] || ''}`).join(' · ');
+  } else {
+    display = JSON.stringify(suggestion);
+  }
+  return (
+    <button
+      type="button"
+      onClick={onApply}
+      className="text-left w-full rounded-md border border-border bg-card hover:border-primary/60 p-2.5 transition-colors"
+    >
+      <div className="text-xs text-text-primary leading-relaxed whitespace-pre-wrap">{display}</div>
+      <div className="text-[10px] text-primary mt-1">{kind === 'text' ? 'Replace value →' : 'Append →'}</div>
+    </button>
   );
 }
 

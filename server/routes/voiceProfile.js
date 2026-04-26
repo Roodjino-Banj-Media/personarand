@@ -205,6 +205,119 @@ router.get('/extraction-prompt', (req, res) => {
 // for SaaS positioning.
 // -----------------------------------------------------------------------------
 
+/**
+ * POST /api/voice-profile/sharpen-dimension
+ *
+ * Body: { dimension: string }
+ *
+ * The user's score panel says a specific dimension is weak. They don't
+ * always know HOW to make it sharper. This endpoint reads the full
+ * profile (so the suggestions feel coherent with everything else the
+ * writer believes) and proposes 2-4 concrete improvements specific to
+ * the requested dimension.
+ *
+ * For text fields the suggestions are short rewrites the user can
+ * adopt or adapt. For list/pair fields they are individual entries
+ * the user can append.
+ *
+ * Stateless — does not save. The user picks which suggestions to
+ * incorporate, edits them, then saves via the regular PUT.
+ */
+router.post('/sharpen-dimension', async (req, res, next) => {
+  try {
+    const { dimension } = req.body || {};
+    const { DIMENSIONS } = require('../lib/voiceProfile');
+    const dim = DIMENSIONS.find((d) => d.key === dimension);
+    if (!dim) return res.status(400).json({ error: `Unknown dimension: ${dimension}` });
+
+    const profile = await readProfile();
+    if (!profile) return res.status(400).json({ error: 'No profile to sharpen yet — save anything first.' });
+
+    // Compose the user message: full profile context + the specific
+    // dimension being sharpened + the kind of output we expect.
+    const profileBlock = JSON.stringify({
+      display_name: profile.display_name || null,
+      core_thesis: profile.core_thesis || null,
+      stand_for: profile.stand_for || [],
+      stand_against: profile.stand_against || [],
+      domains_of_authority: profile.domains_of_authority || [],
+      frameworks: profile.frameworks || [],
+      voice_laws: profile.voice_laws || [],
+      primary_audiences: profile.primary_audiences || [],
+      anti_voice: profile.anti_voice || [],
+      strategic_horizon: profile.strategic_horizon || null,
+      regional_context: profile.regional_context || null,
+    }, null, 2);
+
+    const expectedShape = dim.kind === 'text'
+      ? '{ "suggestions": ["<rewritten text option 1>", "<option 2>", "<option 3>"] }'
+      : dim.kind === 'list'
+      ? '{ "suggestions": ["<list entry 1>", "<list entry 2>", ...] }'
+      : `{ "suggestions": [${dim.pairKeys.map((k) => `{ "${k}": "..."  }`).join(', ')}] }`;
+
+    const userMessage = `Sharpen the "${dim.label}" dimension of the voice profile below.
+
+Dimension: ${dim.key}
+Kind: ${dim.kind}
+Hint: ${dim.hint}
+
+CURRENT FULL PROFILE (use this as context — your suggestions must be coherent with everything else the writer believes):
+
+${profileBlock}
+
+Produce 2 to 4 SPECIFIC suggestions for this dimension. Suggestions must:
+- Be inimitable — they should sound like only THIS person could have said them, not a generic operator template.
+- Cohere with the rest of the profile (their stand_for, stand_against, frameworks, etc.).
+- For text dimensions: produce alternative phrasings the user might adopt.
+- For list dimensions: produce individual entries the user can append.
+- For pair dimensions: produce individual { ${dim.pairKeys?.join(', ')} } objects.
+
+Return STRICT JSON of this exact shape:
+${expectedShape}
+
+Output JSON only.`;
+
+    const SYSTEM = `You are a brand-strategist writing partner helping the writer sharpen their voice profile dimension by dimension. You are precise, specific, and you do not invent claims that aren't grounded in the rest of their profile. Output strict JSON only.`;
+
+    let response;
+    try {
+      response = await getClient().messages.create({
+        model: HAIKU_MODEL,
+        max_tokens: 1500,
+        system: [{ type: 'text', text: SYSTEM }],
+        messages: [{ role: 'user', content: userMessage }],
+        temperature: 0.4,
+      });
+    } catch (err) {
+      console.warn('[voice-profile] sharpen failed:', err?.status, err?.message);
+      throw humanizeAnthropicError(err);
+    }
+    const raw = response.content
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text)
+      .join('\n')
+      .trim();
+
+    let parsed;
+    try {
+      const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+      const first = cleaned.indexOf('{');
+      const last = cleaned.lastIndexOf('}');
+      const slice = first >= 0 && last > first ? cleaned.slice(first, last + 1) : cleaned;
+      parsed = JSON.parse(slice);
+    } catch {
+      return res.status(502).json({ error: 'Sharpener returned non-JSON', raw });
+    }
+
+    res.json({
+      dimension: dim.key,
+      kind: dim.kind,
+      suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions : [],
+      model: response.model,
+    });
+  } catch (e) { next(e); }
+});
+
 router.get('/compiled', async (req, res, next) => {
   try {
     const profile = await readProfile();
