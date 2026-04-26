@@ -11,6 +11,7 @@ import ReviewView from './components/Review/ReviewView.jsx';
 import BriefingView from './components/Briefing/BriefingView.jsx';
 import KnowledgeView from './components/Knowledge/KnowledgeView.jsx';
 import VoiceProfileView from './components/VoiceProfile/VoiceProfileView.jsx';
+import QuickCaptureFAB from './components/QuickCapture/QuickCaptureFAB.jsx';
 import NewsletterView from './components/Newsletter/NewsletterView.jsx';
 import ProspectsView from './components/Prospects/ProspectsView.jsx';
 import AttributionView from './components/Attribution/AttributionView.jsx';
@@ -86,6 +87,10 @@ export default function App() {
           </Routes>
         </div>
       </main>
+      {/* Floating quick-capture mic — global. Lets the operator dictate any
+          thought from any page; Haiku classifies and routes to KB / Calendar
+          / journal. The single biggest UX bet on solo-operator usage. */}
+      <QuickCaptureFAB />
     </div>
   );
 }

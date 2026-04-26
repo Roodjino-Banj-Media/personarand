@@ -250,6 +250,9 @@ export const api = {
     toggle: (ids, is_active) => request('/api/knowledge/toggle', { method: 'POST', body: { ids, is_active } }),
     export: () => downloadFile('/api/knowledge/export', 'knowledge-export.md'),
   },
+  quickCapture: {
+    classify: (text) => request('/api/quick-capture/classify', { method: 'POST', body: { text } }),
+  },
   voiceProfile: {
     get: () => request('/api/voice-profile'),
     save: (profile) => request('/api/voice-profile', { method: 'PUT', body: profile }),
