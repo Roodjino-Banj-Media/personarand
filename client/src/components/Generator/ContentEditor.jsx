@@ -5,6 +5,7 @@ import RepurposePanel from './RepurposePanel.jsx';
 import PostedVersionPanel from './PostedVersionPanel.jsx';
 import CaptionPanel from './CaptionPanel.jsx';
 import RigorCheckPanel from './RigorCheckPanel.jsx';
+import PostPreview from './PostPreview.jsx';
 
 // Content types that ship a MEDIA payload (video/script, slide deck) and
 // therefore need a separate POST CAPTION for the text that sits above
@@ -60,6 +61,19 @@ export default function ContentEditor({ initial, platform, type, onRegenerate, r
   const [hashtags, setHashtags] = useState(null);   // null | array
   const [hashtagsBusy, setHashtagsBusy] = useState(false);
   const [hashtagsError, setHashtagsError] = useState(null);
+  // View mode: 'edit' (textarea) or 'preview' (platform-styled rendering).
+  const [viewMode, setViewMode] = useState('edit');
+  // Pulled from voice profile so the preview header shows the user's
+  // actual display name. Fetched lazily once on mount; failures default
+  // to the placeholder. Not refreshed — the preview is throwaway.
+  const [voiceDisplayName, setVoiceDisplayName] = useState(null);
+  useEffect(() => {
+    let mounted = true;
+    api.voiceProfile.get()
+      .then((r) => { if (mounted) setVoiceDisplayName(r?.profile?.display_name || null); })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, []);
 
   // Last-persisted snapshot — used to detect dirty state for auto-save.
   const savedSnapshot = useRef({
@@ -415,13 +429,48 @@ export default function ContentEditor({ initial, platform, type, onRegenerate, r
         </div>
       )}
 
-      <textarea
-        className="flex-1 bg-[#0f0f0f] p-4 text-sm text-text-primary font-mono leading-relaxed outline-none min-h-[300px] resize-y"
-        value={currentBody}
-        onChange={(e) => setCurrentBody(e.target.value)}
-        spellCheck
-        placeholder={lang === 'fr' && !bodyFr && translatingFr ? 'Génération en français…' : ''}
-      />
+      {/* Edit / Preview tab strip — preview is platform-styled rendering
+          showing truncation, character pressure, and tweet-thread breakup
+          so the user sees how the post will actually land before posting. */}
+      <div className="px-4 pt-2 border-t border-border flex items-center gap-1 text-[11px]">
+        <button
+          type="button"
+          className={`px-3 py-1.5 rounded-t-md transition-colors ${
+            viewMode === 'edit'
+              ? 'bg-[#0f0f0f] text-text-primary border-x border-t border-border'
+              : 'text-text-secondary hover:text-text-primary'
+          }`}
+          onClick={() => setViewMode('edit')}
+        >
+          Edit
+        </button>
+        <button
+          type="button"
+          className={`px-3 py-1.5 rounded-t-md transition-colors ${
+            viewMode === 'preview'
+              ? 'bg-[#0f0f0f] text-text-primary border-x border-t border-border'
+              : 'text-text-secondary hover:text-text-primary'
+          }`}
+          onClick={() => setViewMode('preview')}
+          title="See the post as it'll render on the target platform — truncation, char pressure, tweet boundaries"
+        >
+          Preview
+        </button>
+      </div>
+
+      {viewMode === 'edit' ? (
+        <textarea
+          className="flex-1 bg-[#0f0f0f] p-4 text-sm text-text-primary font-mono leading-relaxed outline-none min-h-[300px] resize-y"
+          value={currentBody}
+          onChange={(e) => setCurrentBody(e.target.value)}
+          spellCheck
+          placeholder={lang === 'fr' && !bodyFr && translatingFr ? 'Génération en français…' : ''}
+        />
+      ) : (
+        <div className="bg-[#0f0f0f] p-4 min-h-[300px]">
+          <PostPreview body={currentBody} platform={platform} displayName={voiceDisplayName} />
+        </div>
+      )}
 
       <div className="px-4 py-3 border-t border-border flex flex-wrap items-center justify-between gap-3 text-[11px] text-text-secondary">
         <div className="flex flex-wrap gap-x-4 gap-y-1">
