@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../lib/api.js';
 import ContentEditor from '../Generator/ContentEditor.jsx';
+import VoiceCapture from '../common/VoiceCapture.jsx';
 
 const FUNNEL_LAYERS = ['Discovery', 'Authority', 'Trust', 'Conversion', 'Identity'];
 const PLATFORMS = ['LinkedIn', 'X', 'Instagram', 'Instagram Reels', 'TikTok', 'YouTube'];
@@ -226,7 +227,14 @@ export default function ReactToNowModal({ defaultWeek, onClose, onItemsAdded }) 
         {/* Source input stays visible across all steps for context */}
         <div className="px-6 pt-4 pb-3 border-b border-border/60 bg-[#0f0f0f] space-y-3">
           <div>
-            <div className="label">Source — URL, headline, thread excerpt, or your own observation</div>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <div className="label !mb-0">Source — URL, headline, thread excerpt, or your own observation</div>
+              <VoiceCapture
+                value={source}
+                onChange={setSource}
+                placeholderHint="speak instead of type"
+              />
+            </div>
             <textarea
               className="input font-mono text-xs min-h-[80px]"
               value={source}
@@ -236,9 +244,12 @@ export default function ReactToNowModal({ defaultWeek, onClose, onItemsAdded }) 
             />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <div className="label !mb-0">Supporting data & facts (optional — but strongly recommended)</div>
-              <span className="text-[10px] text-amber-400">⚡ reactive posts get scrutinized hardest</span>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="label !mb-0">Supporting data & facts (optional — but strongly recommended)</div>
+                <span className="text-[10px] text-amber-400 whitespace-nowrap">⚡ reactive posts get scrutinized hardest</span>
+              </div>
+              <VoiceCapture value={facts} onChange={setFacts} />
             </div>
             <textarea
               className="input font-mono text-xs min-h-[60px] mt-1"

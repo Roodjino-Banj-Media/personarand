@@ -3,6 +3,7 @@ import AIConfidence from '../Generator/AIConfidence.jsx';
 import { api } from '../../lib/api.js';
 import { copyToClipboard } from '../../lib/clipboard.js';
 import ContentEditor from '../Generator/ContentEditor.jsx';
+import VoiceCapture from '../common/VoiceCapture.jsx';
 
 // Each type declares which platforms it's valid for. `'*'` means any
 // platform accepts this type. This is the source of truth for the
@@ -234,6 +235,9 @@ export default function GenerateModal({ item, seed, onClose }) {
               </div>
             </Field>
             <Field label="Extra direction (optional)">
+              <div className="flex justify-end mb-1">
+                <VoiceCapture value={extra} onChange={setExtra} placeholderHint="speak the angle" />
+              </div>
               <textarea
                 className="input min-h-[80px]"
                 value={extra}
