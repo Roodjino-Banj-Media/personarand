@@ -293,6 +293,72 @@ router.get('/:id', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * POST /api/content/:id/metrics
+ *
+ * Per-post performance numbers. Manual entry today (the user reads
+ * them off LinkedIn / X / Instagram and pastes here). Future LinkedIn
+ * API integration can call this endpoint server-side with the same
+ * payload shape — keeping the write contract stable across input
+ * sources.
+ *
+ * Any field can be omitted; only provided fields update. Pass null
+ * to clear a field. Stamps post_metrics_at on every successful write
+ * so the dashboard can sort by "most recently measured".
+ *
+ * Sits ABOVE /:id and /:id/* routes for the same reason rigor-check
+ * does — Express matches in registration order.
+ */
+router.post('/:id/metrics', async (req, res, next) => {
+  try {
+    const db = openDb();
+    const existing = await db.prepare(`SELECT * FROM generated_content WHERE id = ?`).get([req.params.id]);
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+
+    const fields = ['reach', 'impressions', 'likes', 'comments', 'shares', 'saves', 'clicks'];
+    const updates = {};
+    for (const f of fields) {
+      if (req.body && Object.prototype.hasOwnProperty.call(req.body, f)) {
+        const v = req.body[f];
+        // null → clear; number → set; anything else → ignored
+        if (v === null) updates[f] = null;
+        else if (typeof v === 'number' && Number.isFinite(v) && v >= 0) updates[f] = Math.round(v);
+        else if (typeof v === 'string' && v.trim() === '') updates[f] = null;
+        else if (typeof v === 'string' && /^\d+$/.test(v.trim())) updates[f] = Number(v.trim());
+      }
+    }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'At least one of reach/impressions/likes/comments/shares/saves/clicks required' });
+    }
+
+    await db.prepare(`
+      UPDATE generated_content SET
+        post_reach        = ?,
+        post_impressions  = ?,
+        post_likes        = ?,
+        post_comments     = ?,
+        post_shares       = ?,
+        post_saves        = ?,
+        post_clicks       = ?,
+        post_metrics_at   = NOW(),
+        updated_at        = NOW()
+      WHERE id = ?
+    `).run([
+      'reach' in updates       ? updates.reach       : existing.post_reach,
+      'impressions' in updates ? updates.impressions : existing.post_impressions,
+      'likes' in updates       ? updates.likes       : existing.post_likes,
+      'comments' in updates    ? updates.comments    : existing.post_comments,
+      'shares' in updates      ? updates.shares      : existing.post_shares,
+      'saves' in updates       ? updates.saves       : existing.post_saves,
+      'clicks' in updates      ? updates.clicks      : existing.post_clicks,
+      req.params.id,
+    ]);
+
+    const row = await db.prepare(`SELECT * FROM generated_content WHERE id = ?`).get([req.params.id]);
+    res.json(row);
+  } catch (e) { next(e); }
+});
+
 router.post('/:id', async (req, res, next) => {
   try {
     const db = openDb();

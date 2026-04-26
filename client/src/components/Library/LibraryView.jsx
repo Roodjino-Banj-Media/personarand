@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../lib/api.js';
 import ContentEditor from '../Generator/ContentEditor.jsx';
 import GenerateModal from '../Calendar/GenerateModal.jsx';
+import PostMetricsEditor from './PostMetricsEditor.jsx';
 
 const STATUSES = ['', 'draft', 'scheduled', 'posted', 'archived'];
 const SORTS = [
@@ -190,6 +191,7 @@ export default function LibraryView() {
               onGenerateSimilar={() => handleGenerateSimilar(row)}
               onRate={(p) => handleRate(row, p)}
               onDelete={() => handleDelete(row)}
+              onMetricsUpdated={(updated) => setRows((prev) => prev.map((r) => r.id === updated.id ? { ...r, ...updated } : r))}
             />
           ))}
         </div>
@@ -218,7 +220,7 @@ function Field({ label, children, className = '' }) {
   );
 }
 
-function LibraryRow({ row, query, onOpen, onGenerateSimilar, onRate, onDelete }) {
+function LibraryRow({ row, query, onOpen, onGenerateSimilar, onRate, onDelete, onMetricsUpdated }) {
   const excerpt = buildExcerpt(row.body || '', query, 180);
   return (
     <div className={`card-pad hover:border-[#555] transition-colors ${row.performance === 'strong' ? 'border-success/40 bg-success/5' : ''}`}>
@@ -271,6 +273,14 @@ function LibraryRow({ row, query, onOpen, onGenerateSimilar, onRate, onDelete })
           {row.featured_in_newsletters && (
             <div className="text-[11px] text-primary mt-2">
               Featured in newsletter: {row.featured_in_newsletters}
+            </div>
+          )}
+          {/* Metrics editor — only meaningful once a post is live. Showing
+              it for drafts would invite "metrics" to be confused with
+              "predictions" or pre-publish projections. */}
+          {row.status === 'posted' && (
+            <div className="mt-3" onClick={(e) => e.stopPropagation()}>
+              <PostMetricsEditor row={row} onUpdated={onMetricsUpdated} />
             </div>
           )}
         </div>
