@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api.js';
+import GenerateModal from '../Calendar/GenerateModal.jsx';
 
 const CATEGORY_LABELS = {
   note: 'Note',
@@ -142,6 +143,10 @@ export default function KnowledgeView() {
   const [editing, setEditing] = useState(null); // null | 'new' | entry object
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
+  // generateFrom: KB entry the user wants to spin into a post. Opens
+  // GenerateModal with the entry's title + content as the seed topic so
+  // the AI generates from the captured thought without retyping.
+  const [generateFrom, setGenerateFrom] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -305,6 +310,13 @@ export default function KnowledgeView() {
                   </div>
                 </div>
                 <div className="flex flex-col gap-1 shrink-0">
+                  <button
+                    className="btn-ghost text-xs !text-primary hover:bg-primary/10"
+                    onClick={() => setGenerateFrom(e)}
+                    title="Open the generator with this entry as the topic seed — closes the loop from captured thought to produced post"
+                  >
+                    ✨ Generate
+                  </button>
                   <button className="btn-ghost text-xs" onClick={() => toggle(e.id, !e.is_active)}>
                     {e.is_active ? 'Pause' : 'Activate'}
                   </button>
@@ -322,6 +334,20 @@ export default function KnowledgeView() {
           entry={editing === 'new' ? null : editing}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); load(); }}
+        />
+      )}
+
+      {generateFrom && (
+        <GenerateModal
+          seed={{
+            // Use the entry's title as the headline topic; full content
+            // goes into `extra` so the AI has the captured detail without
+            // letting it dominate the topic line. funnel_layer is left
+            // blank so GenerateModal's default doesn't get over-anchored.
+            topic: generateFrom.title,
+            extra: `Source — captured Knowledge Base entry "${generateFrom.title}":\n\n${generateFrom.content_md}\n\nUse the captured material as the substantive base; turn it into the requested format.`,
+          }}
+          onClose={() => setGenerateFrom(null)}
         />
       )}
     </div>
